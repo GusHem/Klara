@@ -1,0 +1,1935 @@
+<!DOCTYPE html>
+<html lang="sv" class="light">
+<head>
+    <meta charset="UTF8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Klara Portalen</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+        }
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js" defer></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        body { font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; font-size: 16px; }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
+        @keyframes fadeInScale { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        @keyframes slideInUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        @keyframes slideOutDown { from { transform: translateY(0); } to { transform: translateY(100%); } }
+        .animate-fade-in-fast { animation: fadeIn 0.3s ease-out forwards; }
+        .animate-fade-out-fast { animation: fadeOut 0.3s ease-out forwards; }
+        .animate-fade-in-scale { animation: fadeInScale 0.5s cubic-bezier(0.215, 0.610, 0.355, 1) forwards; }
+        .animate-slide-in-up { animation: slideInUp 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards; }
+        .animate-slide-out-down { animation: slideOutDown 0.4s cubic-bezier(0.55, 0.085, 0.68, 0.53) forwards; }
+        .time-picker-column { scroll-snap-type: y mandatory; scroll-behavior: smooth; padding-top: calc(50% - 20px); padding-bottom: calc(50% - 20px); }
+        .time-picker-column > div { scroll-snap-align: center; height: 40px; }
+        
+        .transition-all-smooth { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+        .btn-interaction { transform-origin: center; }
+        .btn-interaction:hover { transform: scale(1.03); }
+        .btn-interaction:active { transform: scale(0.98); }
+        .card-interaction:hover { transform: translateY(-3px); box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.07), 0 4px 6px -4px rgb(0 0 0 / 0.07); }
+        .dark .card-interaction:hover { box-shadow: 0 10px 15px -3px rgb(99 102 241 / 0.1), 0 4px 6px -4px rgb(99 102 241 / 0.1); }
+        @keyframes growUp { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+        .animate-grow-up {
+            transform-origin: bottom;
+            animation: growUp 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 transition-colors duration-300">
+    <div id="app-root"></div>
+
+    <script type="module">
+        const appRoot = document.getElementById('app-root');
+
+        const state = {
+            isLoggedIn: false, isLoading: true, quotes: [], selectedQuoteId: null, activeView: 'quotes',
+            filter: 'prioriterade', searchTerm: '', toast: null, showWidgets: true,
+            theme: 'light',
+            formData: null, openSections: { info: true, menu: true, costs: true, customCosts: true, diets: true, staff: true, internal: true },
+            isTimePickerOpen: false, timePickerTarget: null, calendarViewDate: new Date(),
+            displayLimit: 12, openCardMenu: { id: null, target: null },
+            analyticsSubView: 'overview', isModalStatusOpen: false,
+            isEmailModalOpen: false, quoteToSend: null,
+            isDeleteConfirmModalOpen: false, quoteToDelete: null,
+            isModalFooterCollapsed: false,
+            menuTemplates: {},
+            isTemplateEditorOpen: false,
+            wishlistItems: [
+                { recordId: 'wish1', title: 'Automatiska SMS-påminnelser', description: 'Skicka automatiska SMS till kunder dagen innan eventet.', votes: 18, status: 'planerad' },
+                { recordId: 'wish2', title: 'Anpassningsbara offert-mallar', description: 'Möjlighet att skapa och spara egna mallar för offerter.', votes: 12, status: 'under utveckling' },
+                { recordId: 'wish3', title: 'Statistik per anställd', description: 'Se statistik över hur många event varje anställd har arbetat på.', votes: 7, status: 'idé' },
+                { recordId: 'wish4', title: 'Bifoga bilder till ärenden', description: 'Ladda upp och bifoga bilder direkt i ett ärende, t.ex. från eventlokalen.', votes: 5, status: 'idé' }
+            ],
+            selectedWishlistItem: null,
+            calendarSelectedDay: new Date(),
+            userVotes: {},
+            staff: [
+                { id: 's1', name: 'Klara Uggla', role: 'Hovmästare' },
+                { id: 's2', name: 'Erik Kock', role: 'Kock' },
+                { id: 's3', name: 'Anna Servis', role: 'Servering' },
+                { id: 's4', name: 'Martin Bartender', role: 'Bar' },
+            ],
+        };
+
+        function setState(newState, options = { render: true }) { Object.assign(state, newState); if (options.render) renderApp(); }
+
+        const texts = { sv: { 'login.welcome': 'Välkommen till Klara Portalen', 'login.secret_phrase': 'Hemlig fras', 'login.button': 'Logga in', 'login.error': 'Felaktig fras.', 'nav.catering': 'Catering', 'nav.analytics': 'Analytics', 'nav.calendar': 'Kalender', 'nav.wishlist': 'Önskelista', 'nav.staff': 'Personal', 'dashboard.subtitle': 'En proaktiv översikt av din cateringverksamhet.', 'controls.new_quote': 'Nytt', 'status.utkast': 'Utkast', 'status.förslag-skickat': 'Förslag Skickat', 'status.godkänd': 'Godkänd', 'status.genomförd': 'Genomförd', 'status.betald': 'Betald', 'status.förlorad': 'Förlorad Affär', 'status.arkiverad': 'Arkiverad', 'filter.prioriterade': 'Prioriterade', 'filter.aktiva': 'Aktiva', 'filter.kommande': 'Kommande', 'filter.alla': 'Alla', 'modal.edit_title': 'Redigera Ärende', 'modal.create_title': 'Skapa Nytt Ärende', 'toast.saved': 'Ärende {id} har sparats.', 'toast.proposal_sent': 'Förslag för {id} har skickats.', 'toast.copied': 'Ärendet kopierades!', 'toast.fortnox_sent': 'Ärendet har skickats till Fortnox.', 'analytics.overview': 'Översikt', 'analytics.calendar': 'Kalender', 'toast.templates_saved': 'Menymallar har sparats lokalt i din webbläsare.', 'toast.deleted': 'Ärendet har raderats.', 'toast.delete_failed': 'Kunde inte radera ärendet.'} };
+        const t = (key, vars = {}) => (texts.sv[key] || key).replace(/{(\w+)}/g, (_, k) => vars[k] || `{${k}}`);
+        
+        const defaultMenuTemplates = {
+            'BUFFÉ ALTERNATIV': {
+                'Italiensk buffé': "Antipasti misto/formaggi misto, Verdure marinate, Pollo de Limone, Insalata di pasta al pesto, Insalata di mozzarella, Focaccia",
+                'Klassikerbuffé': "Kallskuret (rostbiff, örtbakad kycklingfilé, italiensk salami, skinka), Sallader (grönsallad, melon & myntasallad, tomat & mozzarellasallad), Såser (vitlöksdressing, örtcrème fraiche), Fransk potatissallad/Potatisgratäng, Ostbricka, Bröd och smör",
+                'Streetfoodbuffé': "Caesarsallad, Crispy shrimp, Pulled pork sandwich, Sushi - California rolls, Pizzaslice, Korean BBQ chicken",
+                'Mingelbuffé Trädgårdsfest': "Pulled pork sliders DIY, Pizzaslice Margherita, Västerbottenpaj, Tomat och mozzarellasallad Cocktail, Focaccia",
+                'Vegetarisk buffé': "Falafel på gråärta, Trädgårdssallad, Rostad kronärtskocka och aubergine, Helbakad blomkål, Svensk tabbouleh, Semitorkade och färska tomater, Grönkålssallad, Rödbetshummus, Färskost, Surdegsbröd och knäckebröd",
+                'Grillbuffé Populär': "Helgrillad fläskfilé, Majskycklingbröst smokey paprika, Helbakad blomkål, Grönkålscaesar, Rostad färskpotatis med grillade medelhavsgrönsaker, Melonsallad, Bernaisesås, Fetaoströras, Rödvinsås, Surdegsbröd med färskost",
+            },
+            'KOCK-RÄTTER': {
+                'Lyxig skärgårdspytt med kräftor och räkor': "Purjolöksfrästa rotfrukter, bakad lax, kräftstjärtar, västerbottencrème, örter, picklad rödlök, bröd och säsongssallad",
+                'Jambalaya': "Kryddigt ris, rostade grönsaker, chorizo BBQ, grillade kycklinglår, majskolv, rökt aioli, bröd och säsongssallad"
+            },
+            'ÖVRIGA ALTERNATIV': {
+                'Snittar (blandade sorter)': "Krustad fylld med skagen, Blini med crème fraiche, löjrom och rödlök, Crostini med råbiff, kapris och rödbeta, Crostini med getostcrème och semitorkad tomat, Parma- och basilikarullar, Sushi nigiri med lax",
+                'Bröllopsmeny': "Anpassad meny efter överenskommelse med tilltugg, förrätter, varmrätter och desserter",
+                'Anpassad meny': "Diskuterat med Klara Hovmästare enligt kundens önskemål"
+            }
+        };
+
+        const N8N_BASE_URL = 'https://nordsym.app.n8n.cloud/webhook/';
+        const N8N_ENDPOINTS = { SAVE_QUOTE: 'guldkant-offer-intake-v2', GET_QUOTES: 'quotes', SEND_PROPOSAL: 'quote/dispatch', DELETE_QUOTE: 'quote/delete' };
+        
+        function getPlaceholderQuotes() {
+            const today = new Date();
+            const formatDate = (date) => date.toISOString().split('T')[0];
+            return [
+                { id: 'GK-1672614000000', recordId: 'rec002', status: 'förslag-skickat', customer: 'Svensson Bygg AB', contactPerson: 'Erik Svensson', contactEmail: 'erik@svenssonbygg.se', address: 'Företagsvägen 2, Vimmerby', guestCount: 120, eventDate: '2025-11-28', pricePerGuest: 375, menuDescription: 'Streetfoodbuffé för företagsevent.', total: 50400, assignedStaff: ['s1', 's3', 's4'] },
+                { id: 'GK-1672700400000', recordId: 'rec003', status: 'utkast', customer: 'Tech Solutions AB', contactPerson: 'Maria Lind', contactEmail: 'maria@techsolutions.se', address: 'Tech Park 5, Linköping', guestCount: 25, eventDate: '2025-11-15', pricePerGuest: 550, menuDescription: 'Anpassad meny för tech-mingel.', total: 15400, assignedStaff: [] },
+                { id: 'GK-1672786800000', recordId: 'rec004', status: 'genomförd', customer: 'Familjen Larsson', contactPerson: 'Sofia Larsson', contactEmail: 'sofia.l@mail.se', address: 'Gränsö Slott, Västervik', guestCount: 80, eventDate: '2025-09-12', pricePerGuest: 895, menuDescription: 'Exklusiv bröllopsmeny med tre rätter.', total: 80192, assignedStaff: ['s1', 's2', 's3', 's4'] },
+                { id: 'GK-1672873200000', recordId: 'rec005', status: 'förlorad', customer: 'Västerviks Kommun', contactPerson: 'Anders Persson', contactEmail: 'anders.p@kommunen.se', address: 'Stadshuset', guestCount: 200, eventDate: '2025-11-01', pricePerGuest: 350, menuDescription: 'Enklare lunchbuffé.', total: 78400, assignedStaff: [] },
+                { id: 'GK-1672959600000', recordId: 'rec006', status: 'betald', customer: 'Berg & Co.', contactPerson: 'Eva Berg', contactEmail: 'eva.berg@fest.se', address: 'Villa Vintervik, Stockholm', guestCount: 40, eventDate: '2025-09-05', pricePerGuest: 600, menuDescription: 'Lyxig skärgårdspytt och snittar.', total: 26880, assignedStaff: ['s1', 's2'] },
+                { id: 'GK-1673046000000', recordId: 'rec007', status: 'utkast', customer: 'Innovate AB', contactPerson: 'Johan Lundgren', contactEmail: 'johan.l@foretag.se', address: 'Kontorsgatan 8', guestCount: 30, eventDate: '2025-09-25', pricePerGuest: 300, menuDescription: 'Mingelbuffé Trädgårdsfest', total: 10080, assignedStaff: ['s4'] },
+                { id: 'GK-1673132400000', recordId: 'rec008', status: 'godkänd', customer: 'Familjen Nilsson', contactPerson: 'Anna Nilsson', contactEmail: 'nilsson@mail.com', address: 'Hemvägen 12', guestCount: 60, eventDate: '2025-11-02', pricePerGuest: 400, menuDescription: 'Klassikerbuffé', total: 26880, assignedStaff: ['s1', 's3'] },
+                { id: 'GK-1673218800000', recordId: 'rec009', status: 'förslag-skickat', customer: 'Marketing AB', contactPerson: 'Stina Jansson', contactEmail: 'event@marketing.com', address: 'Eventlokalen Stora scenen', guestCount: 150, eventDate: '2025-11-10', pricePerGuest: 450, menuDescription: 'Italiensk buffé och snittar.', total: 75600, assignedStaff: [] },
+                { id: 'GK-1673305200000', recordId: 'rec010', status: 'utkast', customer: 'Lina Andersson', contactPerson: 'Lina Andersson', contactEmail: 'lina.a@live.se', address: 'Lägenheten på Kullen', guestCount: 12, eventDate: '2025-09-28', pricePerGuest: 750, menuDescription: 'Jambalaya som kock-rätt', total: 10080, assignedStaff: ['s2'] },
+                { id: 'GK-1673400000000', recordId: 'rec011', status: 'betald', customer: 'Höstfesten Event', contactPerson: 'Karl Johansson', contactEmail: 'karl.j@event.se', address: 'Festlokalen', guestCount: 75, eventDate: '2025-10-18', pricePerGuest: 500, menuDescription: 'Italiensk buffé.', total: 42000, assignedStaff: ['s1', 's2', 's3'] },
+                { id: 'GK-1673500000000', recordId: 'rec012', status: 'betald', customer: 'Företagsgala AB', contactPerson: 'Sara Bergman', contactEmail: 'sara@foretagsgala.se', address: 'Stadshotellet', guestCount: 150, eventDate: '2025-11-22', pricePerGuest: 950, menuDescription: 'Exklusiv trerättersmeny.', total: 159600, assignedStaff: ['s1', 's2', 's3', 's4'] },
+            ].map(q => ({...q, customCosts:[], standardDiets:{}, customDiets:[], internalComment: '', customerRequests: '', eventStartTime: '18:00', eventEndTime: '23:00' }));
+        }
+
+
+        class DataService {
+            async _post(endpoint, data) {
+                try {
+                    const response = await fetch(`${N8N_BASE_URL}${endpoint}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(data)
+                    });
+                    
+                    const text = await response.text();
+                    const jsonResponse = text ? JSON.parse(text) : {};
+
+                    if (!response.ok) {
+                        if (jsonResponse && jsonResponse.error) {
+                            throw new Error(jsonResponse.error);
+                        }
+                        throw new Error(`N8N Error: ${response.statusText}`);
+                    }
+                    return jsonResponse;
+                } catch (e) {
+                    if (e instanceof TypeError && e.message === 'Failed to fetch') {
+                         throw new Error('NetworkError');
+                    }
+                    throw e;
+                }
+            }
+            async getQuotes() { return Promise.resolve(getPlaceholderQuotes()); }
+            async saveQuote(d) {
+                console.log("Sparar (simulerat):", d);
+                // Simulering: Uppdaterar bara det lokala state-objektet
+                const quotes = state.quotes.map(q => q.id === d.offertId ? transformN8nQuoteToPortalQuote({...d, recordId: d.recordId || `rec${Date.now()}`}) : q);
+                if (!quotes.find(q => q.id === d.offertId)) {
+                     quotes.push(transformN8nQuoteToPortalQuote({...d, recordId: `rec${Date.now()}`}));
+                }
+                setState({ quotes }, {render: false});
+                return Promise.resolve({ recordId: d.recordId || `rec${Date.now()}` });
+            }
+            async deleteQuote(recordId) {
+                console.log("Raderar (simulerat):", recordId);
+                const quotes = state.quotes.filter(q => q.recordId !== recordId);
+                setState({ quotes }, {render: false});
+                return Promise.resolve({ success: true });
+            }
+            
+        }
+
+        function safeJsonParse(jsonString, defaultValue) {
+            if (jsonString === null || jsonString === undefined) return defaultValue;
+            if (typeof jsonString === 'object') return jsonString;
+            if (typeof jsonString !== 'string' || !jsonString.trim()) return defaultValue;
+            try {
+                const parsed = JSON.parse(jsonString);
+                return parsed !== null ? parsed : defaultValue;
+            } catch (e) {
+                console.warn("JSON Parse Warning:", jsonString, e);
+                return defaultValue;
+            }
+        }
+
+        function normalizeStatus(statusString) {
+            if (!statusString || typeof statusString !== 'string') return 'utkast';
+            const normalized = statusString.toLowerCase().trim().replace(/\s+/g, '-');
+            const statusMap = {
+                'skickad': 'förslag-skickat',
+                'förslag-skickat': 'förslag-skickat',
+                'godkänd': 'godkänd',
+                'accepterad': 'godkänd',
+                'genomförd': 'genomförd',
+                'betald': 'betald',
+                'förlorad': 'förlorad',
+                'nekad': 'förlorad',
+                'förlorad-affär': 'förlorad',
+                'arkiverad': 'arkiverad',
+                'utkast': 'utkast'
+            };
+            return statusMap[normalized] || 'utkast';
+        }
+
+        function transformN8nQuoteToPortalQuote(n8nQuote) {
+            const recordId = n8nQuote.recordId || n8nQuote.recordID || null;
+            
+            const standardDiets = n8nQuote.standardDiets || {};
+            if (n8nQuote.hasVegetarian && Number(n8nQuote.numVegetarian) > 0) standardDiets.vegetarian = Number(n8nQuote.numVegetarian);
+            if (n8nQuote.hasVegan && Number(n8nQuote.numVegan) > 0) standardDiets.vegan = Number(n8nQuote.numVegan);
+            if (n8nQuote.hasGlutenFree && Number(n8nQuote.numGlutenFree) > 0) standardDiets.gluten = Number(n8nQuote.numGlutenFree);
+            if (n8nQuote.hasLactoseFree && Number(n8nQuote.numLactoseFree) > 0) standardDiets.laktos = Number(n8nQuote.numLactoseFree);
+            if (n8nQuote.hasNutAllergy && Number(n8nQuote.numNutAllergy) > 0) standardDiets.notallergi = Number(n8nQuote.numNutAllergy);
+
+            const quoteObject = {
+                id: n8nQuote.offertId || n8nQuote.OffertID || n8nQuote.id || `GK-${Date.now()}`,
+                recordId: recordId,
+                status: normalizeStatus(n8nQuote.status),
+                customer: n8nQuote.customerName || n8nQuote.kundNamn || n8nQuote.customer || '',
+                customerType: n8nQuote.customerType || n8nQuote.kundtyp || 'privat',
+                contactPerson: n8nQuote.contactPerson || n8nQuote.kontaktPerson || n8nQuote.ContactPerson || '',
+                customerIdNumber: n8nQuote.customerIdNumber || n8nQuote.personnummer || '',
+                contactEmail: n8nQuote.contactEmail || n8nQuote.email || '',
+                contactPhone: n8nQuote.contactPhone || n8nQuote.telefon || '',
+                address: n8nQuote.address || n8nQuote.adress || n8nQuote.Address || n8nQuote.eventPlats || '',
+                guestCount: Number(n8nQuote.guestCount || n8nQuote.antalGaster) || 0,
+                eventDate: (n8nQuote.eventDate || n8nQuote.eventDatum) ? new Date(n8nQuote.eventDate || n8nQuote.eventDatum).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+                eventStartTime: n8nQuote.eventStartTime || n8nQuote.starttid || n8nQuote.eventTid || "17:00",
+                eventEndTime: n8nQuote.eventEndTime || n8nQuote.sluttid || "01:00",
+                pricePerGuest: Number(n8nQuote.pricePerGuest || n8nQuote.prisPerKuvert) || 0,
+                menuDescription: n8nQuote.menuDescription || n8nQuote.meny || n8nQuote.menuPreference || '',
+                customerRequests: n8nQuote.customerRequests || n8nQuote.kundensOnskemal || n8nQuote.KundensOnskemal || n8nQuote.otherRequests || '',
+                numChefs: Number(n8nQuote.numChefs || n8nQuote.antalKockar) || 0,
+                chefCost: Number(n8nQuote.chefCost || n8nQuote.kostnadKockar) || 0,
+                numServingStaff: Number(n8nQuote.numServingStaff || n8nQuote.antalServering) || 0,
+                servingStaffCost: Number(n8nQuote.servingStaffCost || n8nQuote.kostnadServering) || 0,
+                discountAmount: Number(n8nQuote.discountAmount || n8nQuote.rabatt) || 0,
+                customCosts: safeJsonParse(n8nQuote.customCosts || n8nQuote.extraKostnader || n8nQuote.customCostsJSON, []),
+                standardDiets: standardDiets,
+                customDiets: safeJsonParse(n8nQuote.customDiets || n8nQuote.ovrigSpecialkost, []),
+                events: safeJsonParse(n8nQuote.events || n8nQuote.handelselogg, [{ timestamp: new Date().toISOString(), event: "Data hämtad från databas" }]),
+                internalComment: n8nQuote.internalComment || n8nQuote.internaNoteringar || '',
+                total: Number(n8nQuote.total || n8nQuote.totalt) || 0,
+                sentDate: n8nQuote.sentDate ? new Date(n8nQuote.sentDate).toLocaleDateString('sv-SE') : null,
+                aiRawLog: n8nQuote.aiRawLog || '',
+                assignedStaff: n8nQuote.assignedStaff || [],
+            };
+            
+            if (!quoteObject.total) {
+                quoteObject.total = calculateTotal(quoteObject);
+            }
+            return quoteObject;
+        }
+
+        function transformPortalQuoteToN8nQuote(portalQuote) {
+            const payload = {
+                recordId: portalQuote.recordId,
+                offertId: portalQuote.id,
+                status: portalQuote.status,
+                customerName: portalQuote.customer,
+                customerType: portalQuote.customerType,
+                contactPerson: portalQuote.contactPerson,
+                customerIdNumber: portalQuote.customerIdNumber,
+                contactEmail: portalQuote.contactEmail,
+                contactPhone: portalQuote.contactPhone,
+                address: portalQuote.address,
+                guestCount: Number(portalQuote.guestCount) || 0,
+                eventDate: portalQuote.eventDate,
+                eventStartTime: portalQuote.eventStartTime,
+                eventEndTime: portalQuote.eventEndTime,
+                pricePerGuest: Number(portalQuote.pricePerGuest) || 0,
+                menuDescription: portalQuote.menuDescription,
+                customerRequests: portalQuote.customerRequests,
+                numChefs: Number(portalQuote.numChefs) || 0,
+                chefCost: Number(portalQuote.chefCost) || 0,
+                numServingStaff: Number(portalQuote.numServingStaff) || 0,
+                servingStaffCost: Number(portalQuote.servingStaffCost) || 0,
+                discountAmount: Number(portalQuote.discountAmount) || 0,
+                total: Number(portalQuote.total) || 0,
+                internalComment: portalQuote.internalComment,
+                customCosts: portalQuote.customCosts || [],
+                standardDiets: portalQuote.standardDiets || {},
+                customDiets: portalQuote.customDiets || [],
+                events: portalQuote.events || [],
+                assignedStaff: portalQuote.assignedStaff || [],
+            };
+            return payload;
+        }
+
+        const dataService = new DataService();
+        
+        const themes = { 
+            light: { bg: 'bg-slate-50', cardBg: 'bg-white', text: 'text-slate-800', textSecondary: 'text-slate-500', accent: 'text-indigo-600', border: 'border-slate-200', inputBg: 'bg-slate-100', buttonPrimaryBg: 'bg-indigo-500', buttonPrimaryText: 'text-white', buttonPrimaryHover: 'hover:bg-indigo-600', buttonSecondaryBg: 'bg-slate-200', buttonSecondaryHover: 'hover:bg-slate-300', modalOverlay: 'bg-slate-900/60 backdrop-blur-sm', navActive: 'bg-indigo-500/10 text-indigo-600 border-indigo-500', navInactive: 'text-slate-600 border-transparent hover:bg-slate-200/50', filterActive: 'bg-indigo-500 text-white', focus: 'focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 ring-offset-slate-50', logoBg: 'bg-slate-100' },
+            dark: { bg: 'bg-slate-900', cardBg: 'bg-slate-800', text: 'text-slate-200', textSecondary: 'text-slate-400', accent: 'text-cyan-400', border: 'border-slate-700', inputBg: 'bg-slate-700', buttonPrimaryBg: 'bg-cyan-500', buttonPrimaryText: 'text-white', buttonPrimaryHover: 'hover:bg-cyan-600', buttonSecondaryBg: 'bg-slate-700', buttonSecondaryHover: 'hover:bg-slate-600', modalOverlay: 'bg-slate-900/80 backdrop-blur-sm', navActive: 'bg-cyan-500/10 text-cyan-400 border-cyan-500', navInactive: 'text-slate-400 border-transparent hover:bg-slate-700/50', filterActive: 'bg-cyan-500 text-white', focus: 'focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-cyan-500 ring-offset-slate-900', logoBg: 'bg-slate-800' }
+        };
+
+        const formatDate = (date) => new Date(date).toLocaleDateString('sv-SE', { year: 'numeric', month: '2-digit', day: '2-digit' });
+        const calculatePriceDetails = (q) => { const base = (Number(q.guestCount) || 0) * (Number(q.pricePerGuest) || 0); const staff = (Number(q.chefCost) || 0) + (Number(q.servingStaffCost) || 0); const custom = (q.customCosts || []).reduce((s, c) => s + (Number(c.amount) || 0), 0); const subTotal = base + staff + custom - (Number(q.discountAmount) || 0); const vat = subTotal * 0.12; return { subTotal, vat, total: subTotal + vat }; };
+        const calculateTotal = (q) => calculatePriceDetails(q).total;
+        
+        function createElement(tag, props = {}, ...children) {
+            const el = document.createElement(tag);
+            Object.entries(props || {}).forEach(([key, value]) => {
+                if (key.startsWith('on') && typeof value === 'function') {
+                    el.addEventListener(key.substring(2).toLowerCase(), value);
+                } else if (key === 'className') {
+                    el.className = value;
+                } else if (key === 'innerHTML') {
+                    el.innerHTML = value;
+                } else if (key === 'style' && typeof value === 'object') {
+                    Object.assign(el.style, value);
+                } else if(typeof value === 'boolean' && value) {
+                    el.setAttribute(key, '');
+                } else if (value !== null && value !== undefined) {
+                     el.setAttribute(key, value);
+                }
+            });
+            children.forEach(child => {
+                if(child) el.append(typeof child === 'string' ? document.createTextNode(child) : child);
+            });
+            return el;
+        }
+
+        const icons = { guldkantLogo: `<img src="https://raw.githubusercontent.com/GusHem/GusHem-Ugglan-Klara/refs/heads/main/frilagd-bild.svg" alt="Klara Logotyp" class="w-24 h-24 mx-auto">`, nordsymLogo: `<img src="https://raw.githubusercontent.com/GusHem/Logga-utan-text/refs/heads/main/Final%20logo%20no%20text.svg" alt="NordSym Logotyp" class="w-full h-full">`, arrowDown: c => `<svg class="${c}" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>`, chevronLeft: c => `<svg class="${c}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg>`, chevronRight: c => `<svg class="${c}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>`, plus: c => `<svg class="${c}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" /></svg>`, chartLineUp: c => `<svg class="${c}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>`, invoice: c => `<svg class="${c}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>`, trash: c => `<svg class="${c}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>`, x: c => `<svg class="${c}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>`, briefcase: c => `<svg class="${c}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>`, calendar: c => `<svg class="${c}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>`, calendarCheck: c => `<svg class="${c}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2zM7 15l4 4 6-6" /></svg>`, checkCircle: c => `<svg class="${c}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>`, adjustments: c => `<svg class="${c}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" /></svg>`, support: c => `<svg class="${c}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.546-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>`, tag: c => `<svg class="${c}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5a2 2 0 012 2v5a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z M17 17h.01M17 13h5a2 2 0 012 2v5a2 2 0 01-2 2h-5a2 2 0 01-2-2v-5a2 2 0 012-2z"/></svg>`, moon: c => `<svg class="${c}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" /></svg>`, sun: c => `<svg class="${c}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v2m-5.657 2.343l-1.414 1.414m14.142 0l-1.414-1.414M19 12h2m-18 0h2m12.657 5.657l1.414 1.414m-14.142 0l1.414-1.414M12 19v2M12 7a5 5 0 100 10 5 5 0 000-10z" /></svg>`, filePdf: c => `<svg class="${c}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 21h7a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v11m0 5l4.879-4.879m0 0a3 3 0 104.243-4.242 3 3 0 00-4.243 4.242z" /></svg>`, search: c => `<svg class="${c}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>`, cog: c => `<svg class="${c}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0 3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.096 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>`, lightBulb: c => `<svg class="${c}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2a3 3 0 013-3h0a3 3 0 013 3v2m-6 0h6M12 3a5.96 5.96 0 014.243 1.757 6 6 0 010 8.486A5.96 5.96 0 0112 15a5.96 5.96 0 01-4.243-1.757 6 6 0 010-8.486A5.96 5.96 0 0112 3z" /></svg>`, chevronUp: c => `<svg class="${c}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7" /></svg>`, identification: c => `<svg class="${c}" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" /></svg>`, upload: c => `<svg class="${c}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>`, searchEmpty: c=> `<svg class="${c}" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>`};
+        
+        const statusTextMap = Object.keys(texts.sv).filter(k => k.startsWith('status.')).reduce((acc, k) => ({ ...acc, [k.replace('status.', '')]: t(k) }), {});
+        const statusColors = { utkast: 'bg-yellow-400', 'förslag-skickat': 'bg-blue-400', godkänd: 'bg-green-500', genomförd: 'bg-indigo-500', betald: 'bg-purple-500', förlorad: 'bg-red-500', arkiverad: 'bg-slate-400' };
+        let toastTimer = null;
+
+        function showToast(message, type = 'success') { clearTimeout(toastTimer); setState({ toast: { id: Date.now(), message, type } }); toastTimer = setTimeout(() => setState({ toast: null }), 5000); }
+        async function handleSaveQuote(quote, show=true) { 
+            const isNewQuote = !quote.recordId;
+            
+            let optimisticQuotes;
+            if (isNewQuote) {
+                optimisticQuotes = [...state.quotes, quote];
+            } else {
+                optimisticQuotes = state.quotes.map(q => q.id === quote.id ? quote : q);
+            }
+             setState({ quotes: optimisticQuotes, formData: null, selectedQuoteId: null });
+
+            try { 
+                const response = await dataService.saveQuote(transformPortalQuoteToN8nQuote(quote)); 
+                if (isNewQuote && response.recordId) {
+                    const finalQuotes = state.quotes.map(q => q.id === quote.id ? { ...q, recordId: response.recordId } : q);
+                    setState({ quotes: finalQuotes }, { render: false });
+                }
+                if(show) showToast(t('toast.saved', {id: quote.id})); 
+            } catch (e) { 
+                console.error(e); 
+                showToast('Sparning misslyckades.', 'error'); 
+                loadInitialData();
+            } 
+        }
+
+        function initiateSendProposal(quote) {
+            const updatedQuote = { ...quote, status: 'förslag-skickat' };
+            
+            // Spara den uppdaterade statusen 'förslag-skickat' först
+            const optimisticQuotes = state.quotes.map(q => q.id === updatedQuote.id ? updatedQuote : q);
+            setState({ quotes: optimisticQuotes, formData: null, isEmailModalOpen: true, quoteToSend: updatedQuote }, { render: false });
+            
+            // Spara i bakgrunden (simulerat)
+            dataService.saveQuote(transformPortalQuoteToN8nQuote(updatedQuote)).catch(e => {
+                console.error(e);
+                showToast('Kunde inte skicka förslag.', 'error');
+                loadInitialData(); // Återställ om det misslyckas
+            });
+
+            // Rendera appen på nytt för att visa modalen
+            renderApp();
+            showToast(t('toast.proposal_sent', {id: quote.id}));
+        }
+
+        async function handleDeleteQuote(quote) {
+            setState({ isDeleteConfirmModalOpen: false, quoteToDelete: null });
+
+            if (!quote || !quote.recordId) {
+                console.error("Delete failed: quote is missing a recordId.", quote);
+                showToast('Kan inte radera: Ärendet saknar ett databas-ID.', 'error');
+                return;
+            }
+
+            const optimisticQuotes = state.quotes.filter(q => q.id !== quote.id);
+            setState({ quotes: optimisticQuotes });
+
+            try {
+                await dataService.deleteQuote(quote.recordId);
+                showToast(t('toast.deleted'));
+            } catch (e) {
+                console.error(e);
+                showToast(t('toast.delete_failed'), 'error');
+                loadInitialData();
+            }
+        }
+        function handleNewQuote() { const newId = `GK-${Date.now()}`; const q = { id: newId, recordId: null, status: 'utkast', guestCount: 20, eventDate: new Date().toISOString().split('T')[0], pricePerGuest: 375, customCosts:[], standardDiets:{}, customDiets:[], assignedStaff:[] }; q.total = calculateTotal(q); setState({ selectedQuoteId: newId, formData: q }); }
+        async function loadInitialData() { 
+            setState({ isLoading: true }); 
+            // Simulerar en nätverksfördröjning för att visa skeleton loader
+            setTimeout(async () => {
+                try { 
+                    const quotes = await dataService.getQuotes(); 
+                    setState({ quotes, isLoading: false }); 
+                } catch (e) { 
+                    console.error(e); 
+                    setState({ isLoading: false, quotes: [] }); 
+                    showToast('Kunde inte ladda ärenden.', 'error'); 
+                }
+            }, 800);
+        }
+        
+        function getFilteredAndSortedQuotes() {
+            const now = new Date(); now.setHours(0, 0, 0, 0);
+            return state.quotes.filter(q => {
+                if (!q || !q.status) return false;
+                const eventDate = new Date(q.eventDate);
+                const eventIsInThePast = eventDate < now;
+                const isCompletedStatus = ['genomförd', 'betald'].includes(q.status);
+                const isArchivedStatus = ['förlorad', 'arkiverad'].includes(q.status);
+                const isActive = !(isArchivedStatus || (eventIsInThePast && isCompletedStatus));
+                
+                const filterLogic = { 'prioriterade': isActive && (eventDate >= now), 'aktiva': isActive, 'kommande': eventDate >= now && !['genomförd', 'betald', 'förlorad'].includes(q.status), 'alla': true };
+                const matchesFilter = filterLogic[state.filter] ?? q.status === state.filter;
+                if (!matchesFilter) return false;
+                const term = state.searchTerm.toLowerCase(); return !term || (q.customer || '').toLowerCase().includes(term) || (q.id || '').toLowerCase().includes(term);
+            }).sort((a, b) => new Date(a.eventDate) - new Date(b.eventDate));
+        }
+        
+        function svgToPngDataUrl(svgText, width, height) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+
+                img.onload = () => {
+                    ctx.drawImage(img, 0, 0, width, height);
+                    resolve(canvas.toDataURL('image/png'));
+                };
+
+                img.onerror = (e) => {
+                    reject(new Error("Misslyckades att ladda SVG-bild för PDF-konvertering."));
+                };
+                img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgText)));
+            });
+        }
+        
+        async function generatePdf(quote) {
+             const { jsPDF } = window.jspdf;
+             const doc = new jsPDF();
+             const logoUrl = 'https://raw.githubusercontent.com/GusHem/GusHem-Ugglan-Klara/refs/heads/main/frilagd-bild.svg';
+             const theme = themes[state.theme];
+             const accentColor = theme.accent === 'text-indigo-600' ? [79, 70, 229] : [6, 182, 212]; // Indigo-500 or Cyan-500
+
+             try {
+                const response = await fetch(logoUrl);
+                if (!response.ok) throw new Error(`Nätverksfel: ${response.statusText}`);
+                const svgText = await response.text();
+                const logoPngDataUrl = await svgToPngDataUrl(svgText, 300, 300);
+                
+                // Vattenstämpel (justerad position)
+                doc.saveGraphicsState();
+                doc.setGState(new doc.GState({opacity: 0.05}));
+                doc.addImage(logoPngDataUrl, 'PNG', doc.internal.pageSize.getWidth() / 2 - 50, doc.internal.pageSize.getHeight() / 2 - 25, 100, 90);
+                doc.restoreGraphicsState();
+
+                // Ren och minimalistisk header
+                doc.addImage(logoPngDataUrl, 'PNG', 14, 15, 30, 27);
+                doc.setFontSize(18).setFont('helvetica', 'bold').setTextColor(accentColor[0], accentColor[1], accentColor[2]);
+                doc.text('OFFERT', 50, 26);
+                
+             } catch(e) {
+                console.error("Kunde inte rendera SVG för PDF.", e);
+             }
+
+             // Tunn avdelare
+             doc.setDrawColor(220, 220, 220); // Ljusgrå
+             doc.line(14, 45, doc.internal.pageSize.getWidth() - 14, 45);
+             
+             doc.setTextColor(0,0,0);
+            
+             doc.setFontSize(10).setFont('helvetica', 'bold');
+             doc.text('Kund:', 14, 55);
+             doc.text('Event:', 120, 55);
+             
+             doc.setFont('helvetica', 'normal');
+             doc.text(quote.customer || '', 14, 61);
+             doc.text(quote.contactEmail || '', 14, 66);
+             doc.text(quote.contactPhone || '', 14, 71);
+
+             doc.text(formatDate(quote.eventDate), 120, 61);
+             doc.text(`${quote.guestCount} personer`, 120, 66);
+             doc.text(`${quote.eventStartTime || ''} - ${quote.eventEndTime || ''}`, 120, 71);
+             doc.text(`Offertnummer: ${quote.id}`, 120, 76);
+
+             const menuYStart = 95;
+             doc.setFontSize(11).setFont('helvetica', 'bold').text('MENY', 14, menuYStart);
+             const menuLines = doc.splitTextToSize(quote.menuDescription || 'Ej specificerat', 182);
+             doc.setFont('helvetica', 'normal').text(menuLines, 14, menuYStart + 6);
+             
+             const menuHeight = doc.getTextDimensions(menuLines).h;
+             const pricesYStart = menuYStart + 6 + menuHeight;
+
+             doc.setFontSize(11).setFont('helvetica', 'bold').text('PRISER', 14, pricesYStart + 10);
+
+             const { subTotal, vat, total } = calculatePriceDetails(quote); 
+             const formatCurrency = (amount) => (amount || 0).toLocaleString('sv-SE') + ' kr';
+             
+             const tableRows = [];
+             tableRows.push(['Mat', `${(quote.pricePerGuest || 0).toLocaleString('sv-SE')} kr x ${quote.guestCount}p`, formatCurrency((quote.guestCount || 0) * (quote.pricePerGuest || 0))]);
+             if (quote.chefCost > 0) tableRows.push(['Kockar', 'Fast kostnad', formatCurrency(quote.chefCost)]); 
+             if (quote.servingStaffCost > 0) tableRows.push(['Serveringspersonal', 'Fast kostnad', formatCurrency(quote.servingStaffCost)]); 
+             (quote.customCosts || []).forEach(c => tableRows.push([c.description, 'Extra kostnad', formatCurrency(c.amount)])); 
+             if (quote.discountAmount > 0) tableRows.push(['Rabatt', '', `-${formatCurrency(quote.discountAmount)}`]);
+             
+             tableRows.push([{ content: 'Delsumma:', colSpan: 2, styles: { halign: 'right' } }, formatCurrency(subTotal)]);
+             tableRows.push([{ content: 'Moms (12%):', colSpan: 2, styles: { halign: 'right' } }, formatCurrency(vat)]);
+             tableRows.push([{ content: 'Totalt att betala:', colSpan: 2, styles: { halign: 'right', fontStyle: 'bold' } }, { content: formatCurrency(total), styles: { fontStyle: 'bold' } }]);
+             
+             // Dynamisk justering för att tabellen ska hamna NER (under vattenstämpeln)
+             let tableStartY = pricesYStart + 15;
+             const watermarkBottomY = (doc.internal.pageSize.getHeight() / 2) + 20; // Y-position under vattenstämpeln
+
+             if (tableStartY < watermarkBottomY) {
+                 tableStartY = watermarkBottomY;
+             }
+
+             doc.autoTable({ 
+                startY: tableStartY,
+                head: [['Beskrivning', 'Detalj', 'Pris']], 
+                body: tableRows, 
+                theme: 'grid',
+                headStyles: { 
+                    fillColor: accentColor,
+                    textColor: [255, 255, 255],
+                    fontStyle: 'bold'
+                }, 
+                columnStyles: { 
+                    0: {cellWidth: 100}, 
+                    1: {halign: 'right'}, 
+                    2: { halign: 'right' } 
+                } 
+            });
+
+             const pageHeight = doc.internal.pageSize.getHeight();
+             doc.setFontSize(8).setFont('helvetica', 'normal');
+             const footerText1 = "Offerten är giltig i 30 dagar. När vi är överens om innehåll skickas en beställningsbekräftelse via mail som behöver ett godkännande från er sida.";
+             const footerText2 = "Menyförslag av. Klara, kontakt@klara.se";
+             const footerText3 = "Restaurang Klara | org nr 556719-3635 | Exempelgatan 1, 593 33 Västervik";
+             doc.text(footerText1, doc.internal.pageSize.getWidth() / 2, pageHeight - 25, { align: 'center' });
+             doc.text(footerText2, doc.internal.pageSize.getWidth() / 2, pageHeight - 20, { align: 'center' });
+             doc.text(footerText3, doc.internal.pageSize.getWidth() / 2, pageHeight - 15, { align: 'center' });
+
+             doc.save(`Klara-Offert-${quote.id}-${quote.eventDate}.pdf`);
+        }
+        
+        function renderLogin() {
+            let error = null; 
+            const form = createElement('form', { className: 'w-full max-w-sm p-8 space-y-6 bg-white rounded-2xl shadow-2xl animate-fade-in-scale', onsubmit: e => { e.preventDefault(); if (e.target.elements.secretPhrase.value === 'guldbyxor') { setState({isLoggedIn: true}); loadInitialData(); } else { error = t('login.error'); renderApp(); } } });
+            form.append(createElement('div', { innerHTML: icons.guldkantLogo }), createElement('h1', { className: 'text-2xl font-bold text-center' }, t('login.welcome')));
+            if(error) form.append(createElement('p', {className: 'text-red-500 text-center'}, error));
+            form.append(createElement('input', { className: 'w-full p-4 bg-slate-100 rounded-xl', type: 'password', name: 'secretPhrase', placeholder: t('login.secret_phrase') }), createElement('button', { className: 'w-full py-4 font-bold bg-indigo-500 text-white rounded-xl hover:bg-indigo-600 transition-all-smooth btn-interaction' }, t('login.button')));
+            return createElement('div', { className: 'min-h-screen w-full bg-slate-50 flex items-center justify-center p-4' }, form);
+        }
+        function renderToast() { if (!state.toast) return null; const colors = { success: 'bg-green-500', error: 'bg-red-500', info: 'bg-blue-500' }; return createElement('div', { className: `fixed bottom-5 left-1/2 -translate-x-1/2 px-6 py-3 text-white font-medium rounded-full shadow-2xl z-50 animate-fade-in-fast ${colors[state.toast.type]}` }, state.toast.message); }
+        
+        function renderEmailModal() {
+            if (!state.isEmailModalOpen) return null;
+            const theme = themes[state.theme];
+            const q = state.quoteToSend;
+            
+            const closeModal = () => setState({ isEmailModalOpen: false, quoteToSend: null });
+            
+            const handleResponse = (newStatus, toastMessage) => {
+                const updatedQuote = { ...q, status: newStatus };
+                const updatedQuotes = state.quotes.map(quote => quote.id === q.id ? updatedQuote : quote);
+                setState({ quotes: updatedQuotes, isEmailModalOpen: false, quoteToSend: null });
+                showToast(toastMessage, 'success');
+                dataService.saveQuote(transformPortalQuoteToN8nQuote(updatedQuote)).catch(e => {
+                    console.error(e);
+                    showToast('Kunde inte spara svaret.', 'error');
+                    loadInitialData();
+                });
+            };
+
+            const overlay = createElement('div', { className: `fixed inset-0 z-50 ${theme.modalOverlay} flex items-center justify-center p-0 md:p-4 animate-fade-in-fast`, onclick: closeModal });
+            const modalContent = createElement('div', { className: `w-full h-full md:h-auto md:max-h-[90vh] md:max-w-3xl ${theme.cardBg} md:rounded-2xl shadow-2xl animate-fade-in-scale flex flex-col`, onclick: e => e.stopPropagation() });
+            
+            const simulationBanner = createElement('div', { 
+                className: `p-2 text-center text-sm ${theme.buttonPrimaryBg} ${theme.buttonPrimaryText} flex-shrink-0`
+            }, 'Detta är en simulerad kundvy. Klicka på knapparna nedan för att se hur statusen ändras.');
+
+            const emailBody = createElement('div', { className: 'p-6 md:p-8 overflow-y-auto' });
+            emailBody.innerHTML = `
+                <div class="text-center mb-8">
+                    <img src="https://raw.githubusercontent.com/GusHem/GusHem-Ugglan-Klara/refs/heads/main/frilagd-bild.svg" alt="Klara Logotyp" class="w-20 h-20 mx-auto">
+                </div>
+                <h2 class="text-2xl font-bold ${theme.text} mb-2">Hej ${q.customer || ''},</h2>
+                <p class="${theme.textSecondary} mb-6">Tack för intresset för Klara! Vi har satt ihop ett förslag för er tillställning.</p>
+                
+                <div class="border ${theme.border} rounded-xl p-4 space-y-3 mb-6">
+                    <div class="flex justify-between items-center"><span class="${theme.textSecondary}">Förslag</span><span class="font-semibold">${q.id}</span></div>
+                    <div class="flex justify-between items-center"><span class="${theme.textSecondary}">Datum</span><span class="font-semibold">${formatDate(q.eventDate)}</span></div>
+                    <div class="flex justify-between items-center"><span class="${theme.textSecondary}">Antal gäster</span><span class="font-semibold">${q.guestCount} personer</span></div>
+                    <div class="flex justify-between items-center"><span class="${theme.textSecondary}">Pris</span><span class="font-bold text-lg ${theme.accent}">${Math.round(q.total).toLocaleString('sv-SE')} kr</span></div>
+                </div>
+
+                <div class="border-t ${theme.border} pt-4 mb-6">
+                    <h3 class="font-bold mb-2">Meny</h3>
+                    <p class="text-sm ${theme.textSecondary}">${q.menuDescription}</p>
+                </div>
+
+                <div class="bg-slate-100 dark:bg-slate-800 rounded-xl p-6 text-center">
+                    <h3 class="font-bold mb-2">Passar detta er verksamhet?</h3>
+                    <p class="text-sm ${theme.textSecondary} mb-4">Svara genom att klicka på en av länkarna nedan.</p>
+                    <div class="flex flex-col sm:flex-row gap-4 justify-center">
+                        <button id="accept-proposal-btn" class="w-full sm:w-auto px-6 py-3 font-semibold text-white bg-green-500 hover:bg-green-600 rounded-lg transition-all-smooth btn-interaction">Ja, vi accepterar förslaget</button>
+                        <button id="decline-proposal-btn" class="w-full sm:w-auto px-6 py-3 font-semibold text-white bg-red-500 hover:bg-red-600 rounded-lg transition-all-smooth btn-interaction">Nej, vi önskar diskutera alternativ</button>
+                    </div>
+                </div>
+            `;
+            
+            modalContent.append(simulationBanner, emailBody);
+            
+            modalContent.querySelector('#accept-proposal-btn').onclick = () => handleResponse('godkänd', 'Förslag accepterat! Status uppdaterad.');
+            modalContent.querySelector('#decline-proposal-btn').onclick = () => handleResponse('förlorad', 'Svar registrerat. Status uppdaterad.');
+            
+            overlay.append(modalContent);
+            return overlay;
+        }
+
+        function renderDeleteConfirmModal() {
+            if(!state.isDeleteConfirmModalOpen) return null;
+            const theme = themes[state.theme];
+            return createElement('div', { className: `fixed inset-0 z-50 ${theme.modalOverlay} flex items-center justify-center p-4 animate-fade-in-fast` },
+                createElement('div', { className: `${theme.cardBg} rounded-2xl p-6 shadow-2xl max-w-sm w-full text-center animate-fade-in-scale`},
+                    createElement('h2', { className: 'text-lg font-bold mb-2' }, 'Radera ärende permanent?'),
+                    createElement('p', { className: `${theme.textSecondary} mb-6`}, 'Denna åtgärd kan inte ångras.'),
+                    createElement('div', { className: 'flex justify-center gap-4' },
+                        createElement('button', { className: `px-6 py-2 font-semibold rounded-lg ${theme.buttonSecondaryBg} ${theme.buttonSecondaryHover} transition-all-smooth btn-interaction`, onclick: () => setState({ isDeleteConfirmModalOpen: false, quoteToDelete: null })}, 'Avbryt'),
+                        createElement('button', { className: `px-6 py-2 font-semibold rounded-lg bg-red-500 text-white hover:bg-red-600 transition-all-smooth btn-interaction`, onclick: () => handleDeleteQuote(state.quoteToDelete) }, 'Ja, radera')
+                    )
+                )
+            );
+        }
+
+        function renderAppShell() {
+            const theme = themes[state.theme];
+            const mainContent = createElement('main', { className: 'ml-16 md:ml-56 p-4 md:p-8' });
+            const nav = createElement('nav', { className: `fixed top-0 left-0 h-full w-16 md:w-56 ${theme.cardBg} border-r ${theme.border} flex flex-col z-30 transition-colors` });
+            
+            const navLinks = [
+                { id: 'catering', icon: icons.invoice, text: t('nav.catering'), active: state.activeView === 'quotes', action: () => setState({ activeView: 'quotes' }) },
+                { id: 'analytics', icon: icons.chartLineUp, text: t('nav.analytics'), active: state.activeView === 'analytics', action: () => setState({ activeView: 'analytics' }) },
+                { id: 'calendar', icon: icons.calendar, text: t('nav.calendar'), active: state.activeView === 'calendar', action: () => setState({ activeView: 'calendar' }) },
+                { id: 'wishlist', icon: icons.lightBulb, text: t('nav.wishlist'), active: state.activeView === 'wishlist', action: () => { setState({ activeView: 'wishlist' }); } },
+                { id: 'staff', icon: icons.identification, text: t('nav.staff'), active: state.activeView === 'staff', action: () => setState({ activeView: 'staff' }) },
+            ];
+
+            nav.append(
+                createElement('div', { className: `h-20 flex items-center justify-center md:justify-start md:pl-6 border-b ${theme.border} flex-shrink-0 ${theme.logoBg}`, innerHTML: `<img src="https://raw.githubusercontent.com/GusHem/GusHem-Ugglan-Klara/refs/heads/main/frilagd-bild.svg" alt="Klara Logotyp" class="w-10 h-10"><span class="hidden md:inline ml-3 text-xl font-bold ${theme.text}">Klara</span>` }),
+                createElement('div', { className: 'flex-grow py-4' }, ...navLinks.map(link => 
+                    createElement('a', { href: '#', className: `flex items-center h-12 px-5 md:pl-6 my-1 border-l-4 transition-all-smooth ${link.active ? theme.navActive : theme.navInactive}`, onclick: e => { e.preventDefault(); link.action(); } }, 
+                        createElement('div', { className:'w-6 h-6', innerHTML: link.icon('') }), 
+                        createElement('span', { className:'hidden md:inline ml-4 font-semibold'}, link.text)
+                    )
+                )),
+                createElement('a', { href: 'https://nordsym.com', target:'_blank', className: `flex-shrink-0 border-t ${theme.border} p-4 flex items-center justify-center md:justify-start group transition-all-smooth` }, createElement('div', {className:`w-8 h-8 ${theme.textSecondary} group-hover:${theme.accent}`, innerHTML: icons.nordsymLogo}), createElement('span', {className:`hidden md:inline ml-3 text-sm font-semibold ${theme.textSecondary} group-hover:${theme.text}`},'NordSym'))
+            );
+            
+            return { mainWrapper: createElement('div', {className:`min-h-screen ${theme.bg} transition-colors`}, nav, mainContent), mainContent };
+        }
+        
+        function renderQuoteList() {
+            const quotes = getFilteredAndSortedQuotes();
+            const contentList = document.getElementById('quote-list-container');
+            if (!contentList) return;
+
+            contentList.innerHTML = ''; // Rensa listan
+
+            if (state.isLoading) {
+                contentList.append(renderSkeletonLoader());
+            } else if (quotes.length === 0) {
+                contentList.append(renderEmptyState());
+            } else {
+                quotes.slice(0, state.displayLimit).forEach(quote => contentList.append(renderQuoteCard(quote)));
+                const loadMoreButton = document.getElementById('load-more-btn');
+                if (loadMoreButton) {
+                    loadMoreButton.style.display = quotes.length > state.displayLimit ? 'block' : 'none';
+                }
+            }
+        }
+        
+        function renderSkeletonLoader() {
+            const theme = themes[state.theme];
+            const fragment = document.createDocumentFragment();
+            Array.from({ length: 8 }).forEach(() => {
+                const card = createElement('div', { className: `${theme.cardBg} border ${theme.border} rounded-2xl p-5 flex flex-col gap-4`});
+                card.innerHTML = `
+                    <div class="animate-pulse flex flex-col gap-4">
+                        <div class="flex justify-between items-start">
+                            <div class="h-6 w-2/5 bg-slate-200 dark:bg-slate-700 rounded-md"></div>
+                            <div class="h-6 w-6 bg-slate-200 dark:bg-slate-700 rounded-full"></div>
+                        </div>
+                        <div class="h-6 w-3/4 bg-slate-200 dark:bg-slate-700 rounded-md mt-2"></div>
+                        <div class="flex justify-between mt-auto pt-2">
+                            <div class="space-y-2">
+                                <div class="h-3 w-16 bg-slate-200 dark:bg-slate-700 rounded-md"></div>
+                                <div class="h-4 w-20 bg-slate-200 dark:bg-slate-700 rounded-md"></div>
+                            </div>
+                            <div class="space-y-2 items-end flex flex-col">
+                                <div class="h-3 w-12 bg-slate-200 dark:bg-slate-700 rounded-md"></div>
+                                <div class="h-4 w-24 bg-slate-200 dark:bg-slate-700 rounded-md"></div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                fragment.appendChild(card);
+            });
+            return fragment;
+        }
+
+        function renderEmptyState() {
+            const theme = themes[state.theme];
+            return createElement('div', { className: `col-span-full flex flex-col items-center justify-center py-20 px-4 text-center` },
+                createElement('div', { className: `w-24 h-24 opacity-20 ${theme.textSecondary}`, innerHTML: icons.searchEmpty('') }),
+                createElement('h3', { className: 'mt-4 text-xl font-semibold' }, 'Inga ärenden hittades'),
+                createElement('p', { className: `mt-1 ${theme.textSecondary}` }, 'Prova att ändra ditt filter eller sökterm.')
+            );
+        }
+
+        function renderDashboard() {
+            const theme = themes[state.theme];
+            
+            const themeToggleButton = createElement('button', { 
+                className: `p-2 rounded-lg ${theme.buttonSecondaryBg} ${theme.buttonSecondaryHover} transition-all-smooth btn-interaction`, 
+                onclick: () => {
+                    const newTheme = state.theme === 'light' ? 'dark' : 'light';
+                    localStorage.setItem('klara-theme', newTheme);
+                    setState({ theme: newTheme });
+                    document.documentElement.classList.toggle('dark', newTheme === 'dark');
+                }
+            }, 
+            createElement('div', { innerHTML: state.theme === 'light' ? icons.moon('w-6 h-6') : icons.sun('w-6 h-6')})
+            );
+
+            const header = createElement('header', { className: 'flex items-center justify-between' });
+            header.append(createElement('div', {}, createElement('p', { className: `mt-1 text-lg ${theme.textSecondary}` }, t('dashboard.subtitle'))), 
+            createElement('div', {className: 'flex items-center gap-2'}, themeToggleButton, createElement('button', { className: `p-2 rounded-lg ${theme.buttonSecondaryBg} ${theme.buttonSecondaryHover} transition-all-smooth btn-interaction`, onclick: () => setState({ showWidgets: !state.showWidgets }), innerHTML: icons.adjustments('w-6 h-6') })));
+            
+            const widgetsContainer = createElement('div', { className: `grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 transition-all duration-500 ease-in-out overflow-hidden ${state.showWidgets ? 'max-h-[900px] md:max-h-[500px] opacity-100 mt-6' : 'max-h-0 opacity-0 mt-0'}` });
+            if(state.showWidgets) {
+                const widgetIcons = { 'Aktiva Ärenden': icons.briefcase, 'Nya Förfrågningar': icons.tag, 'Kommande Events (7d)': icons.calendarCheck, 'Godkända Offerer': icons.checkCircle };
+                const getWidgetData = (filter, label, filterKey) => ({ quotes: state.quotes.filter(filter).slice(0, 3), count: state.quotes.filter(filter).length, label, filterKey});
+                
+                const now = new Date();
+                now.setHours(0, 0, 0, 0);
+                const isActiveFilter = q => {
+                    const eventDate = new Date(q.eventDate);
+                    const eventIsInThePast = eventDate < now;
+                    const isCompletedStatus = ['genomförd', 'betald'].includes(q.status);
+                    const isArchivedStatus = ['förlorad', 'arkiverad'].includes(q.status);
+                    return !(isArchivedStatus || (eventIsInThePast && isCompletedStatus));
+                };
+
+                const widgetDefs = [ 
+                    getWidgetData(isActiveFilter, 'Aktiva Ärenden', 'aktiva'), 
+                    getWidgetData(q => q.status === 'utkast', 'Nya Förfrågningar', 'utkast'), 
+                    getWidgetData(q => { const d = new Date(q.eventDate); const today = new Date(); const in7 = new Date(new Date().setDate(today.getDate() + 7)); return d >= today && d <= in7; }, 'Kommande Events (7d)', 'kommande'),
+                    getWidgetData(q => q.status === 'godkänd' || q.status === 'betald', 'Godkända Offerer', 'godkänd')
+                ];
+                widgetDefs.forEach(def => {
+                    const widget = createElement('div', { className: `${theme.cardBg} border ${theme.border} rounded-2xl p-5 transition-all-smooth card-interaction` }, 
+                        createElement('div', {className: 'flex items-start justify-between mb-2 cursor-pointer', onclick: () => setState({filter: def.filterKey})}, 
+                            createElement('div', {}, createElement('p', { className: 'text-2xl font-bold' }, def.count.toString()), createElement('p', { className: `text-sm ${theme.textSecondary}` }, def.label)),
+                            createElement('div', { className: `w-8 h-8 p-1.5 bg-indigo-100 text-indigo-600 rounded-lg dark:bg-cyan-500/20 dark:text-cyan-400`, innerHTML: widgetIcons[def.label]('w-full h-full')})
+                        ),
+                         createElement('div', {className:'space-y-1 mt-2'}, ...def.quotes.map(q => 
+                            createElement('div', {className: `flex items-center gap-2 p-1 rounded ${theme.bg}`}, 
+                                createElement('div', {className:`w-2 h-2 rounded-full ${statusColors[q.status]}`}),
+                                createElement('span', {className: 'text-xs truncate'}, q.customer)
+                            )
+                        ))
+                    );
+                    widgetsContainer.append(widget);
+                });
+            }
+
+            const controlsWrapper = createElement('div', { className: `sticky top-0 z-20 py-4 ${theme.bg} transition-colors` });
+            const statusDropdownContainer = createElement('div', { className: 'relative flex-shrink-0' });
+            
+            const statusButton = createElement('button', { className: `flex items-center gap-2 px-4 py-3 font-semibold ${theme.buttonSecondaryBg} ${theme.buttonSecondaryHover} rounded-lg whitespace-nowrap transition-all-smooth btn-interaction`, 
+                onclick: (e) => {
+                    e.stopPropagation();
+                    const menu = document.getElementById('global-filter-status-menu');
+                    if (menu) {
+                        menu.remove();
+                    } else {
+                         const targetRect = e.currentTarget.getBoundingClientRect();
+                         const statuses = ['alla', 'prioriterade', 'aktiva', 'kommande', ...Object.keys(statusTextMap)];
+                         const newMenu = createElement('div', { id: 'global-filter-status-menu', className: `fixed w-48 ${theme.cardBg} rounded-lg shadow-lg border ${theme.border} z-30 animate-fade-in-fast`, style: { top: `${targetRect.bottom + 5}px`, left: `${targetRect.left}px`} });
+                         [...new Set(statuses)].forEach(status => {
+                             let label = t(`filter.${status}`);
+                             if (label === `filter.${status}`) {
+                                label = statusTextMap[status] || status;
+                             }
+                             newMenu.append(createElement('a', { className: 'block px-4 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer', onclick: () => {
+                                 setState({ filter: status, displayLimit: 12 });
+                                 newMenu.remove();
+                            } }, label));
+                         });
+                         document.body.append(newMenu);
+                    }
+                } 
+            }, (() => {
+                let label = t(`filter.${state.filter}`);
+                if (label === `filter.${state.filter}`) {
+                    label = statusTextMap[state.filter] || state.filter;
+                }
+                return label;
+            })(), createElement('div', {innerHTML: icons.arrowDown('w-4 h-4')}));
+
+            statusDropdownContainer.append(statusButton);
+
+            const searchWrapper = createElement('div', { className: 'relative flex-grow' });
+            searchWrapper.append(
+                createElement('div', { 
+                    className: `absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none`, 
+                    innerHTML: icons.search(`w-5 h-5 ${theme.textSecondary}`) 
+                }),
+                createElement('input', { 
+                    className: `w-full pl-10 pr-4 py-3 ${theme.inputBg} rounded-lg`, 
+                    value: state.searchTerm, 
+                    oninput: e => {
+                        setState({ searchTerm: e.target.value }, { render: false });
+                        renderQuoteList();
+                    } 
+                })
+            );
+
+            const newQuoteButton = createElement('button', { className: `flex items-center gap-2 px-4 py-3 font-semibold ${theme.buttonPrimaryBg} ${theme.buttonPrimaryText} rounded-lg ${theme.buttonPrimaryHover} whitespace-nowrap transition-all-smooth btn-interaction`, onclick: handleNewQuote, innerHTML: icons.plus('w-5 h-5') + `<span class="hidden sm:inline">${t('controls.new_quote')}</span>` });
+            
+            const controlsFlexContainer = createElement('div', { className: 'flex items-center gap-2 md:gap-4' });
+            controlsFlexContainer.append(
+                statusDropdownContainer,
+                searchWrapper,
+                newQuoteButton
+            );
+            controlsWrapper.append(controlsFlexContainer);
+            
+            const contentList = createElement('div', { id: 'quote-list-container', className: 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-6' });
+            const loadMoreButton = createElement('button', { id: 'load-more-btn', className:`md:col-span-full w-full py-3 font-semibold ${theme.buttonSecondaryBg} rounded-lg transition-all-smooth btn-interaction`, style: {display: 'none'}, onclick:()=>{setState({displayLimit: state.displayLimit+12}, {render:false}); renderQuoteList();} }, 'Ladda fler');
+            
+            const dashboardContainer = createElement('div', {className: 'space-y-6'}, header, widgetsContainer, controlsWrapper, contentList, loadMoreButton);
+            setTimeout(renderQuoteList, 0);
+            return dashboardContainer;
+        }
+
+        function renderQuoteCard(quote) {
+            const theme = themes[state.theme];
+            const card = createElement('div', { className: `${theme.cardBg} border ${theme.border} rounded-2xl p-5 flex flex-col gap-4 transition-all-smooth card-interaction relative` });
+            const statusButton = createElement('button', {className:'flex items-center gap-2', 
+                onclick: (e) => { 
+                    e.stopPropagation();
+                    const existingMenu = document.getElementById('global-card-status-menu');
+                    if (existingMenu) {
+                        existingMenu.remove();
+                    }
+                    if (state.openCardMenu.id !== quote.id) {
+                        const targetRect = e.currentTarget.getBoundingClientRect();
+                        const menu = createElement('div', { 
+                            id: 'global-card-status-menu',
+                            className: `fixed w-40 ${theme.cardBg} rounded-lg shadow-lg border ${theme.border} z-50 animate-fade-in-fast`,
+                            style: { top: `${targetRect.bottom + 5}px`, left: `${targetRect.left}px`}
+                        });
+                        Object.keys(statusTextMap).forEach(s => {
+                            menu.append(createElement('a', { className: `block px-3 py-2 text-sm ${theme.text} hover:bg-slate-100 dark:hover:bg-slate-700 cursor-pointer`, href: '#', onclick: e => { 
+                                e.preventDefault(); 
+                                e.stopPropagation(); 
+                                handleSaveQuote({...quote, status: s});
+                                menu.remove();
+                                setState({openCardMenu: {id: null, target: null}}, {render: false});
+                            } }, statusTextMap[s]));
+                        });
+                        document.body.append(menu);
+                        setState({openCardMenu: {id: quote.id, target: e.currentTarget}}, {render: false});
+                    } else {
+                        setState({openCardMenu: {id: null, target: null}}, {render: false});
+                    }
+                } 
+            }, createElement('div', {className:`w-3 h-3 ${statusColors[quote.status]} rounded-full`}), createElement('span',{className:`text-sm font-semibold ${theme.textSecondary}`}, statusTextMap[quote.status]), createElement('div', {innerHTML: icons.arrowDown('w-4 h-4 text-slate-400')}));
+            
+            const cardContent = createElement('div', { className: 'cursor-pointer', onclick: () => setState({ selectedQuoteId: quote.id, formData: JSON.parse(JSON.stringify(quote)) }) });
+            cardContent.append(createElement('h3', {className:'text-lg font-bold truncate mt-2'}, quote.customer || 'Namnlös Offert'));
+            cardContent.append(createElement('div', {className:'grid grid-cols-2 gap-4 pt-2 mt-auto'}, createElement('div', {}, createElement('p',{className:`text-xs ${theme.textSecondary}`},'Eventdatum'), createElement('p',{className:'font-semibold'}, formatDate(quote.eventDate))), createElement('div',{className:'text-right'}, createElement('p',{className:`text-xs ${theme.textSecondary}`},'Totalt'), createElement('p',{className:'font-semibold'}, `${Math.round(quote.total).toLocaleString('sv-SE')} kr`))));
+            
+            const cardHeader = createElement('div', {className:'flex justify-between items-start'}, 
+                statusButton,
+                createElement('button', { 
+                    className: `p-1 rounded-full text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all-smooth`,
+                    onclick: (e) => {
+                        e.stopPropagation();
+                        setState({ isDeleteConfirmModalOpen: true, quoteToDelete: quote });
+                    }
+                }, createElement('div', {innerHTML: icons.trash('w-5 h-5')}))
+            );
+            card.append(cardHeader, cardContent);
+ 
+             return card;
+         }
+        
+        function renderAnalyticsPage() {
+            const theme = themes[state.theme];
+            const header = createElement('div', {}, 
+                createElement('h1', { className: 'text-3xl md:text-4xl font-extrabold' }, t('nav.analytics')),
+                createElement('p', { className: `mt-1 text-lg ${theme.textSecondary}` }, 'Få insikter om din verksamhet.')
+            );
+            
+            const contentContainer = createElement('div', { className: 'mt-6' });
+            contentContainer.append(renderAnalyticsOverview());
+            
+            return createElement('div', {}, header, contentContainer);
+        }
+
+        function renderAnalyticsOverview() {
+            const theme = themes[state.theme];
+            const mainGrid = createElement('div', {className: 'grid grid-cols-1 lg:grid-cols-3 gap-6'});
+
+            // --- Key Metrics ---
+            const keyMetricsContainer = createElement('div', {className: 'lg:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6'});
+            
+            const paidQuotes = state.quotes.filter(q => q.status === 'betald');
+            const totalRevenue = paidQuotes.reduce((sum, q) => sum + q.total, 0);
+            const averageDealValue = paidQuotes.length > 0 ? totalRevenue / paidQuotes.length : 0;
+            
+            const sentOrAboveQuotes = state.quotes.filter(q => ['förslag-skickat', 'godkänd', 'genomförd', 'betald'].includes(q.status));
+            const wonQuotes = state.quotes.filter(q => ['godkänd', 'genomförd', 'betald'].includes(q.status));
+            const conversionRate = sentOrAboveQuotes.length > 0 ? (wonQuotes.length / sentOrAboveQuotes.length) * 100 : 0;
+
+            const createMetricCard = (title, value, icon) => {
+                return createElement('div', {className: `${theme.cardBg} border ${theme.border} rounded-2xl p-5 flex items-start justify-between transition-all-smooth card-interaction`},
+                    createElement('div', {}, 
+                        createElement('p', {className: `text-sm font-semibold ${theme.textSecondary}`}, title),
+                        createElement('p', {className: 'text-3xl font-bold mt-1'}, value)
+                    ),
+                    createElement('div', {className: `w-10 h-10 p-2 bg-indigo-100 text-indigo-600 rounded-lg dark:bg-cyan-500/20 dark:text-cyan-400`, innerHTML: icon('w-full h-full')})
+                );
+            };
+
+            keyMetricsContainer.append(
+                createMetricCard('Total Omsättning', `${(totalRevenue / 1000).toLocaleString('sv-SE', {maximumFractionDigits: 0})}k kr`, icons.chartLineUp),
+                createMetricCard('Snittvärde per affär', `${(averageDealValue / 1000).toFixed(1)}k kr`, icons.invoice),
+                createMetricCard('Konverteringsgrad', `${conversionRate.toFixed(1)}%`, icons.checkCircle)
+            );
+            
+            // --- Revenue Chart ---
+            const revenueChartContainer = createElement('div', {className: `relative lg:col-span-2 ${theme.cardBg} border ${theme.border} rounded-2xl p-6 transition-all-smooth card-interaction overflow-hidden`});
+            revenueChartContainer.append(createElement('h3', {className: 'text-lg font-bold mb-4 z-10 relative'}, 'Omsättning per månad (Betalda)'));
+            
+            const watermark = createElement('img', {
+                src: 'https://raw.githubusercontent.com/GusHem/GusHem-Ugglan-Klara/refs/heads/main/frilagd-bild.svg',
+                className: 'absolute inset-0 w-1/2 h-1/2 m-auto opacity-5 pointer-events-none'
+            });
+            revenueChartContainer.append(watermark);
+
+            const monthlyRevenue = {};
+            const monthOrder = ['sep', 'okt', 'nov'];
+            monthOrder.forEach(m => monthlyRevenue[m] = 0);
+
+            paidQuotes.forEach(q => {
+                const month = new Date(q.eventDate).toLocaleString('sv-SE', { month: 'short' }).replace('.', '');
+                if (monthOrder.includes(month)) {
+                    monthlyRevenue[month] = (monthlyRevenue[month] || 0) + q.total;
+                }
+            });
+
+            const chartData = Object.entries(monthlyRevenue);
+            const maxRevenue = Math.max(...chartData.map(d => d[1]), 1);
+
+            const chart = createElement('div', {className: 'h-64 flex items-end justify-around gap-4 z-10 relative'});
+            if (chartData.some(d => d[1] > 0)) {
+                chartData.forEach(([month, revenue], index) => {
+                    const barHeight = (revenue / maxRevenue * 100);
+                    const barWrapper = createElement('div', { className: 'flex flex-col items-center justify-end flex-grow h-full' });
+                    
+                    const revenueText = createElement('p', { 
+                        className: `text-xs font-bold ${theme.textSecondary} mb-1 opacity-0 whitespace-nowrap`,
+                        style: `animation: fadeIn 0.5s ease ${index * 0.1 + 0.3}s forwards;`
+                    }, `${(revenue / 1000).toFixed(0)}k kr`);
+
+                    const bar = createElement('div', {
+                        className: `w-full rounded-t-md ${theme.buttonPrimaryBg} transition-colors animate-grow-up`,
+                        style: `height: ${barHeight}%; animation-delay: ${index * 0.1}s;`
+                    });
+
+                    barWrapper.append(revenueText, bar, createElement('p', {className: `text-xs mt-2 font-semibold ${theme.textSecondary}`}, month));
+                    chart.append(barWrapper);
+                });
+            } else {
+                chart.className = 'h-64 flex items-center justify-center z-10 relative';
+                chart.append(createElement('p', {className: theme.textSecondary}, 'Ingen omsättning att visa för perioden.'));
+            }
+            revenueChartContainer.append(chart);
+
+            // --- Status Donut Chart ---
+            const statusChartContainer = createElement('div', {className: `lg:col-span-1 ${theme.cardBg} border ${theme.border} rounded-2xl p-6 transition-all-smooth card-interaction`});
+             statusChartContainer.append(createElement('h3', {className: 'text-lg font-bold mb-4'}, 'Ärendestatus'));
+
+            const statusCounts = state.quotes.reduce((acc, q) => {
+                acc[q.status] = (acc[q.status] || 0) + 1;
+                return acc;
+            }, {});
+            
+            const statusList = createElement('ul', {className: 'space-y-3 mt-4'});
+            Object.entries(statusCounts).forEach(([status, count]) => {
+                statusList.append(createElement('li', {className: 'flex items-center justify-between text-sm'},
+                    createElement('div', {className: 'flex items-center gap-2'}, 
+                        createElement('div', {className: `w-3 h-3 rounded-full ${statusColors[status]}`}),
+                        createElement('span', {}, statusTextMap[status])
+                    ),
+                    createElement('span', {className: `font-semibold ${theme.textSecondary}`}, count)
+                ));
+            });
+            statusChartContainer.append(statusList);
+
+            mainGrid.append(keyMetricsContainer, revenueChartContainer, statusChartContainer);
+            return mainGrid;
+        }
+
+        function renderCalendarPage() {
+            const theme = themes[state.theme];
+            const header = createElement('div', {}, 
+                createElement('h1', { className: 'text-3xl md:text-4xl font-extrabold' }, t('nav.calendar')),
+                createElement('p', { className: `mt-1 text-lg ${theme.textSecondary}` }, 'En översikt av inbokade event.')
+            );
+            const calendarContainer = createElement('div', { className: 'mt-6' });
+
+            const controls = createElement('div', { className: 'flex items-center justify-between mb-4'},
+                createElement('h2', { className: 'text-xl font-bold'}, `${new Date(state.calendarViewDate).toLocaleString('sv-SE', { month: 'long', year: 'numeric' })}`),
+                createElement('div', { className: 'flex items-center gap-2'},
+                    createElement('button', { className: `p-2 rounded-lg ${theme.buttonSecondaryBg} ${theme.buttonSecondaryHover} transition-all-smooth btn-interaction`, innerHTML: icons.chevronLeft('w-5 h-5'), onclick: () => setState({ calendarViewDate: new Date(state.calendarViewDate.setMonth(state.calendarViewDate.getMonth() - 1)), calendarSelectedDay: new Date(state.calendarViewDate.getFullYear(), state.calendarViewDate.getMonth(), 1) }) }),
+                    createElement('button', { className: `p-2 rounded-lg ${theme.buttonSecondaryBg} ${theme.buttonSecondaryHover} transition-all-smooth btn-interaction`, innerHTML: icons.chevronRight('w-5 h-5'), onclick: () => setState({ calendarViewDate: new Date(state.calendarViewDate.setMonth(state.calendarViewDate.getMonth() + 1)), calendarSelectedDay: new Date(state.calendarViewDate.getFullYear(), state.calendarViewDate.getMonth(), 1) }) })
+                )
+            );
+
+            calendarContainer.append(controls, renderCalendarGridView(), renderMobileCalendarView());
+            return createElement('div', {}, header, calendarContainer);
+        }
+
+        function renderCalendarGridView() {
+            const theme = themes[state.theme];
+            const today = new Date();
+            const currentDate = state.calendarViewDate;
+            
+            const calendarGrid = createElement('div', { className: `grid grid-cols-7 gap-px ${theme.border.replace('border-', 'bg-')} border ${theme.border} rounded-lg overflow-hidden` });
+            const days = ['Mån', 'Tis', 'Ons', 'Tor', 'Fre', 'Lör', 'Sön'];
+            days.forEach(day => calendarGrid.append(createElement('div', { className: `text-center font-semibold text-sm py-2 ${theme.cardBg} ${theme.textSecondary}` }, day)));
+
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+            const firstDay = new Date(year, month, 1);
+            const lastDay = new Date(year, month + 1, 0);
+            const startDay = (firstDay.getDay() + 6) % 7; // Måndag = 0
+
+            for (let i = 0; i < startDay; i++) {
+                calendarGrid.append(createElement('div', { className: `${theme.bg} min-h-[120px]` }));
+            }
+
+            for (let day = 1; day <= lastDay.getDate(); day++) {
+                const date = new Date(year, month, day);
+                const isToday = date.toDateString() === today.toDateString();
+                const dayCell = createElement('div', { className: `${theme.cardBg} p-2 min-h-[120px] flex flex-col` });
+                dayCell.append(createElement('div', { className: `w-7 h-7 flex items-center justify-center rounded-full text-sm font-semibold ${isToday ? 'bg-indigo-500 text-white' : ''}` }, day.toString()));
+                
+                const eventsThisDay = state.quotes.filter(q => new Date(q.eventDate).toDateString() === date.toDateString());
+                eventsThisDay.forEach(q => {
+                    dayCell.append(createElement('div', { className: `text-xs bg-opacity-20 ${statusColors[q.status]} text-slate-800 dark:text-slate-200 rounded px-1 py-0.5 mt-1 truncate cursor-pointer transition-all-smooth hover:scale-105`, title: q.customer, onclick: () => setState({selectedQuoteId: q.id, formData: JSON.parse(JSON.stringify(q))}) }, q.customer));
+                });
+
+                calendarGrid.append(dayCell);
+            }
+
+            return createElement('div', { className: `${theme.cardBg} p-4 rounded-2xl border ${theme.border} transition-all-smooth card-interaction hidden md:block` }, calendarGrid);
+        }
+        
+        function renderMobileCalendarView() {
+            const container = createElement('div', { className: 'md:hidden' });
+            container.append(renderCompactCalendarGrid(), renderSelectedDayEventList());
+            return container;
+        }
+
+        function renderCompactCalendarGrid() {
+            const theme = themes[state.theme];
+            const today = new Date();
+            const currentDate = state.calendarViewDate;
+            const selectedDate = state.calendarSelectedDay;
+
+            const grid = createElement('div', { className: `grid grid-cols-7 text-center ${theme.cardBg} p-2 rounded-2xl border ${theme.border}`});
+            const days = ['M', 'T', 'O', 'T', 'F', 'L', 'S'];
+            days.forEach(day => grid.append(createElement('div', { className: `font-bold text-sm ${theme.textSecondary}` }, day)));
+
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+            const firstDay = new Date(year, month, 1);
+            const lastDay = new Date(year, month + 1, 0);
+            const startDay = (firstDay.getDay() + 6) % 7; // Måndag = 0
+
+            for (let i = 0; i < startDay; i++) {
+                grid.append(createElement('div'));
+            }
+
+            for (let day = 1; day <= lastDay.getDate(); day++) {
+                const date = new Date(year, month, day);
+                const isToday = date.toDateString() === today.toDateString();
+                const isSelected = date.toDateString() === selectedDate.toDateString();
+                
+                const dayWrapper = createElement('div', { className: 'py-1' });
+                const dayButton = createElement('button', { 
+                    className: `w-9 h-9 flex flex-col items-center justify-center rounded-full transition-colors font-semibold ${isSelected ? 'bg-indigo-500 text-white' : isToday ? `ring-2 ring-indigo-500 ${theme.text}` : theme.text}`,
+                    onclick: () => setState({ calendarSelectedDay: date })
+                });
+
+                dayButton.append(createElement('span', null, day.toString()));
+
+                const eventsThisDay = state.quotes.filter(q => new Date(q.eventDate).toDateString() === date.toDateString());
+                if (eventsThisDay.length > 0) {
+                    dayButton.append(createElement('div', { className: `w-1 h-1 rounded-full mt-0.5 ${isSelected ? 'bg-white' : 'bg-indigo-500'}`}));
+                }
+
+                dayWrapper.append(dayButton);
+                grid.append(dayWrapper);
+            }
+             return grid;
+        }
+
+        function renderSelectedDayEventList() {
+            const theme = themes[state.theme];
+            const selectedDate = state.calendarSelectedDay;
+            
+            const container = createElement('div', { className: 'mt-6' });
+
+            const events = state.quotes
+                .filter(q => new Date(q.eventDate).toDateString() === selectedDate.toDateString())
+                .sort((a,b) => (a.eventStartTime || '00:00').localeCompare(b.eventStartTime || '00:00'));
+            
+            if (events.length === 0) {
+                container.append(createElement('div', { className: `${theme.cardBg} p-6 rounded-2xl text-center ${theme.textSecondary} border ${theme.border}` }, `Inga event för ${selectedDate.toLocaleDateString('sv-SE', { weekday: 'long' })} ${selectedDate.toLocaleDateString('sv-SE')}.`));
+            } else {
+                 const eventList = createElement('div', { className: 'space-y-3' });
+                 events.forEach(q => {
+                    eventList.append(createElement('div', {
+                        className: `flex items-center gap-3 p-3 rounded-xl ${theme.cardBg} border ${theme.border} transition-all-smooth card-interaction`,
+                        onclick: () => setState({selectedQuoteId: q.id, formData: JSON.parse(JSON.stringify(q))})
+                    },
+                        createElement('div', { className: `w-2 h-10 rounded-full ${statusColors[q.status]}` }),
+                        createElement('div', { className: 'flex-grow' },
+                            createElement('p', { className: 'font-bold' }, q.customer),
+                            createElement('p', { className: `text-sm ${theme.textSecondary}` }, `${q.guestCount} gäster`)
+                        ),
+                        createElement('p', { className: `text-sm font-semibold ${theme.textSecondary}` }, `${q.eventStartTime}`)
+                    ));
+                });
+                container.append(eventList);
+            }
+            return container;
+        }
+
+        function renderCalendarListView() {
+            // Denna funktion används inte längre, men behålls ifall vi vill återgå.
+            const theme = themes[state.theme];
+            const currentDate = state.calendarViewDate;
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+
+            const eventsThisMonth = state.quotes
+                .filter(q => {
+                    const eventDate = new Date(q.eventDate);
+                    return eventDate.getFullYear() === year && eventDate.getMonth() === month;
+                })
+                .sort((a, b) => new Date(a.eventDate) - new Date(b.eventDate));
+
+            const container = createElement('div', { className: 'block md:hidden space-y-4' });
+
+            if (eventsThisMonth.length === 0) {
+                container.append(createElement('div', { className: `${theme.cardBg} p-6 rounded-2xl text-center ${theme.textSecondary}` }, 'Inga event denna månad.'));
+                return container;
+            }
+
+            const eventsByDay = eventsThisMonth.reduce((acc, q) => {
+                const day = new Date(q.eventDate).getDate();
+                if (!acc[day]) acc[day] = [];
+                acc[day].push(q);
+                return acc;
+            }, {});
+
+            Object.entries(eventsByDay).forEach(([day, quotes]) => {
+                const dayOfWeek = new Date(year, month, day).toLocaleDateString('sv-SE', { weekday: 'long' });
+                const dayHeader = createElement('div', { className: 'flex items-baseline gap-3' },
+                    createElement('h3', { className: 'text-2xl font-bold' }, day),
+                    createElement('p', { className: `font-semibold ${theme.textSecondary}` }, dayOfWeek)
+                );
+                container.append(dayHeader);
+
+                const eventList = createElement('div', { className: 'space-y-2' });
+                quotes.forEach(q => {
+                    eventList.append(createElement('div', {
+                        className: `flex items-center gap-3 p-3 rounded-xl ${theme.cardBg} border ${theme.border} transition-all-smooth card-interaction`,
+                        onclick: () => setState({selectedQuoteId: q.id, formData: JSON.parse(JSON.stringify(q))})
+                    },
+                        createElement('div', { className: `w-2 h-10 rounded-full ${statusColors[q.status]}` }),
+                        createElement('div', { className: 'flex-grow' },
+                            createElement('p', { className: 'font-bold' }, q.customer),
+                            createElement('p', { className: `text-sm ${theme.textSecondary}` }, `${q.guestCount} gäster`)
+                        ),
+                        createElement('p', { className: `text-sm font-semibold ${theme.textSecondary}` }, `${q.eventStartTime}`)
+                    ));
+                });
+                container.append(eventList);
+            });
+
+            return container;
+        }
+        
+        function renderStaffPage() {
+            const theme = themes[state.theme];
+            const header = createElement('div', {}, 
+                createElement('h1', { className: 'text-3xl md:text-4xl font-extrabold' }, t('nav.staff')),
+                createElement('p', { className: `mt-1 text-lg ${theme.textSecondary}` }, 'Översikt över personal och deras tilldelade ärenden.')
+            );
+            const staffGrid = createElement('div', {className: 'mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'});
+            
+            state.staff.forEach(person => {
+                const assignedQuotes = state.quotes.filter(q => (q.assignedStaff || []).includes(person.id));
+                const card = createElement('div', { className: `${theme.cardBg} border ${theme.border} rounded-2xl p-5 transition-all-smooth card-interaction` });
+                const cardHeader = createElement('div', { className: 'flex items-center gap-4' });
+                cardHeader.append(
+                    createElement('div', {className: `w-12 h-12 rounded-full ${theme.buttonSecondaryBg} flex items-center justify-center font-bold text-xl ${theme.accent}`}, person.name.charAt(0)),
+                    createElement('div', {}, 
+                        createElement('h3', { className: 'text-lg font-bold' }, person.name),
+                        createElement('p', { className: `${theme.textSecondary} text-sm` }, person.role)
+                    )
+                );
+                
+                const assignments = createElement('div', {className: 'mt-4'});
+                if (assignedQuotes.length > 0) {
+                    assignments.append(createElement('h4', {className: `text-sm font-semibold mb-2 ${theme.textSecondary}`}, 'Aktuella ärenden'));
+                    const list = createElement('ul', {className: 'space-y-2'});
+                    assignedQuotes.forEach(q => {
+                        list.append(createElement('li', {className: `flex items-center gap-3 p-2 rounded-lg ${theme.bg} cursor-pointer transition-all-smooth hover:scale-[1.02]`, onclick: () => setState({ selectedQuoteId: q.id, formData: JSON.parse(JSON.stringify(q)) })}, 
+                            createElement('div', { className: `w-2 h-2 rounded-full ${statusColors[q.status]} flex-shrink-0` }),
+                            createElement('span', { className: 'text-sm flex-grow truncate' }, q.customer),
+                            createElement('span', { className: `text-xs ${theme.textSecondary}`}, formatDate(q.eventDate))
+                        ));
+                    });
+                    assignments.append(list);
+                } else {
+                    assignments.append(createElement('p', {className: `text-sm text-center py-4 ${theme.textSecondary}`}, 'Inga tilldelade ärenden.'))
+                }
+
+                card.append(cardHeader, assignments);
+                staffGrid.append(card);
+            });
+
+            return createElement('div', {}, header, staffGrid);
+        }
+
+        function renderWishlistPage() {
+            const theme = themes[state.theme];
+
+            const header = createElement('div', {}, 
+                createElement('h1', { className: 'text-3xl md:text-4xl font-extrabold' }, t('nav.wishlist')),
+                createElement('p', { className: `mt-1 text-lg ${theme.textSecondary}` }, 'Här kan du se kommande funktioner och rösta på idéer.')
+            );
+
+            const featureListContainer = createElement('div', { className: 'mt-8 space-y-4' });
+
+            if (state.wishlistItems.length === 0) {
+                 featureListContainer.append(createElement('div', { className: `text-center p-8 ${theme.cardBg} border ${theme.border} rounded-2xl` }, 'Inga förslag har lagts till än.'));
+            } else {
+                const features = state.wishlistItems;
+                
+                const statusInfo = {
+                    planerad: { text: 'Planerad', color: 'bg-blue-500' },
+                    'under utveckling': { text: 'Under Utveckling', color: 'bg-yellow-500' },
+                    idé: { text: 'Idé', color: 'bg-slate-400' },
+                    släppt: { text: 'Släppt', color: 'bg-green-500' },
+                    'Idea': { text: 'Idé', color: 'bg-slate-400' },
+                    'Planned': { text: 'Planerad', color: 'bg-blue-500' },
+                    'In progress': { text: 'Under Utveckling', color: 'bg-yellow-500' },
+                    'Released': { text: 'Släppt', color: 'bg-green-500' },
+                };
+
+                features.forEach(feature => {
+                    const userVoted = !!state.userVotes[feature.recordId];
+                    const card = createElement('div', { className: `${theme.cardBg} border ${theme.border} rounded-2xl p-4 transition-all-smooth card-interaction flex flex-col sm:flex-row sm:items-center gap-4` });
+                    
+                    const voteButton = createElement('button', { 
+                        className: `w-full sm:w-16 h-16 rounded-lg transition-all-smooth btn-interaction flex-shrink-0 flex sm:flex-col items-center justify-center gap-2 sm:gap-0 ${userVoted ? 'bg-indigo-500 text-white cursor-not-allowed' : `${theme.buttonSecondaryBg} ${theme.buttonSecondaryHover}`}`,
+                        onclick: (e) => {
+                            e.stopPropagation();
+                            const newVotesState = { ...state.userVotes, [feature.recordId]: true };
+                            setState({ userVotes: newVotesState }, { render: false });
+                            localStorage.setItem('klara-user-votes', JSON.stringify(newVotesState));
+
+                            const updatedItems = state.wishlistItems.map(item =>
+                                item.recordId === feature.recordId ? { ...item, votes: (item.votes || 0) + 1 } : item
+                            );
+                            updatedItems.sort((a, b) => (b.votes || 0) - (a.votes || 0));
+                            setState({ wishlistItems: updatedItems });
+                        }
+                    });
+                    voteButton.append(
+                        createElement('div', { innerHTML: icons.chevronUp('w-6 h-6')}),
+                        createElement('span', { className: 'font-bold text-lg' }, feature.votes || 0)
+                    );
+                    
+                    const content = createElement('div', { 
+                        className: 'flex-grow min-w-0 cursor-pointer',
+                        onclick: () => {
+                            if (window.innerWidth < 768) { // Only trigger modal on mobile
+                                setState({ selectedWishlistItem: feature });
+                            }
+                        }
+                    });
+
+                    content.append(
+                        createElement('h3', { className: 'text-lg font-bold truncate' }, feature.title),
+                        createElement('p', { className: `text-sm ${theme.textSecondary} mt-1 truncate sm:whitespace-normal` }, feature.description || '')
+                    );
+                    
+                    const statusData = statusInfo[feature.status] || statusInfo.idé;
+                    const statusTag = createElement('div', { className: `mt-2 sm:mt-0 flex-shrink-0 text-xs font-semibold text-white px-2 py-1 rounded-full ${statusData.color}` }, statusData.text);
+                    
+                    card.append(voteButton, content, statusTag);
+                    featureListContainer.append(card);
+                });
+            }
+            
+            return createElement('div', {}, header, featureListContainer);
+        }
+
+        function renderWishlistModal() {
+            if (!state.selectedWishlistItem) return null;
+            const theme = themes[state.theme];
+            const item = state.selectedWishlistItem;
+            const closeModal = () => setState({ selectedWishlistItem: null });
+
+            const overlay = createElement('div', { className: `fixed inset-0 z-50 ${theme.modalOverlay} flex items-end sm:items-center sm:justify-center p-0 sm:p-4 animate-fade-in-fast`, onclick: closeModal });
+            const modalContent = createElement('div', { 
+                className: `w-full max-w-lg ${theme.cardBg} rounded-t-2xl sm:rounded-2xl shadow-2xl animate-slide-in-up sm:animate-fade-in-scale flex flex-col`,
+                onclick: e => e.stopPropagation()
+            });
+
+            const header = createElement('header', { className: `flex-shrink-0 p-4 border-b ${theme.border} flex items-center justify-between` },
+                createElement('h2', { className: 'text-xl font-bold' }, item.title),
+                createElement('button', { className: `p-2 ${theme.buttonSecondaryBg} rounded-lg`, innerHTML: icons.x('w-5 h-5'), onclick: closeModal })
+            );
+
+            const body = createElement('div', { className: 'p-6' },
+                createElement('p', { className: `${theme.textSecondary}` }, item.description)
+            );
+
+            modalContent.append(header, body);
+            overlay.append(modalContent);
+            return overlay;
+        }
+
+        function renderTimePicker() {
+            if (!state.isTimePickerOpen) return null;
+            const theme = themes[state.theme];
+            const overlay = createElement('div', { className: 'fixed inset-0 z-50 ' + theme.modalOverlay, onclick: () => setState({isTimePickerOpen: false}) });
+            const picker = createElement('div', { className: `fixed bottom-0 left-0 right-0 h-64 ${theme.cardBg} rounded-t-2xl shadow-2xl flex justify-center items-center animate-slide-in-up`, onclick: e => e.stopPropagation() });
+            const container = createElement('div', { className: 'flex items-center justify-center h-full relative w-48' });
+            
+            const hoursCol = createElement('div', { className: 'h-48 w-24 overflow-y-scroll hide-scrollbar time-picker-column' });
+            for(let i=0; i<24; i++) hoursCol.append(createElement('div', {className:'flex items-center justify-center text-xl'}, i.toString().padStart(2,'0')));
+            
+            const minutesCol = createElement('div', { className: 'h-48 w-24 overflow-y-scroll hide-scrollbar time-picker-column' });
+            for(let i=0; i<60; i+=5) minutesCol.append(createElement('div', {className:'flex items-center justify-center text-xl'}, i.toString().padStart(2,'0')));
+            
+            const selectionIndicator = createElement('div', { className: `absolute top-1/2 -translate-y-1/2 h-10 w-full bg-indigo-500/10 rounded-lg border-2 ${theme.border.replace('slate-200','indigo-500')} pointer-events-none` });
+            
+            const setButton = createElement('button', { className: `absolute bottom-4 right-4 px-6 py-2 rounded-lg ${theme.buttonPrimaryBg} ${theme.buttonPrimaryText} transition-all-smooth btn-interaction`, onclick: () => {
+                const hourIndex = Math.round(hoursCol.scrollTop / 40); const minuteIndex = Math.round(minutesCol.scrollTop / 40);
+                const time = `${hourIndex.toString().padStart(2,'0')}:${(minuteIndex*5).toString().padStart(2,'0')}`;
+                setState({ formData: { ...state.formData, [state.timePickerTarget]: time }, isTimePickerOpen: false });
+            }}, 'Ställ in');
+            
+            container.append(selectionIndicator, hoursCol, minutesCol);
+            picker.append(container, setButton);
+            overlay.append(picker);
+            return overlay;
+        }
+        
+        function renderTemplateEditorModal() {
+            if (!state.isTemplateEditorOpen) return null;
+            const theme = themes[state.theme];
+            let currentTemplates = JSON.parse(JSON.stringify(state.menuTemplates));
+
+            const closeModal = () => setState({ isTemplateEditorOpen: false });
+
+            const modalContent = createElement('div', {
+                className: `w-full max-h-full md:max-w-2xl lg:max-w-4xl ${theme.cardBg} flex flex-col shadow-2xl rounded-t-2xl md:rounded-2xl animate-slide-in-up md:animate-fade-in-scale`,
+                style: { pointerEvents: 'auto' },
+                onclick: e => e.stopPropagation()
+            });
+
+            const renderEditorContent = () => {
+                const container = createElement('div', { className: 'p-6 space-y-6' });
+                Object.entries(currentTemplates).forEach(([category, menus]) => {
+                    const categorySection = createElement('div', { className: `p-4 border ${theme.border} rounded-lg` });
+                    const categoryHeader = createElement('div', { className: 'flex items-center justify-between mb-4' });
+                    const categoryInput = createElement('input', {
+                        value: category,
+                        className: `text-lg font-semibold ${theme.inputBg} p-2 rounded-md flex-grow`,
+                        onchange: (e) => {
+                            const newCategory = e.target.value;
+                            if (newCategory && !currentTemplates[newCategory]) {
+                                currentTemplates[newCategory] = currentTemplates[category];
+                                delete currentTemplates[category];
+                                rerender();
+                            } else {
+                                e.target.value = category;
+                            }
+                        }
+                    });
+                    const deleteCategoryBtn = createElement('button', { className: 'p-2', innerHTML: icons.trash('w-5 h-5 text-red-500'),
+                        onclick: () => {
+                            delete currentTemplates[category];
+                            rerender();
+                        }
+                    });
+                    categoryHeader.append(categoryInput, deleteCategoryBtn);
+
+                    const menusContainer = createElement('div', { className: 'space-y-4' });
+                    Object.entries(menus).forEach(([title, description]) => {
+                        const menuRow = createElement('div', { className: 'space-y-2' });
+                        const titleInput = createElement('input', {
+                            placeholder: 'Menytitel', value: title, className: `w-full p-2 rounded-lg border ${theme.border} ${theme.inputBg}`,
+                            onchange: (e) => {
+                                const newTitle = e.target.value;
+                                if (newTitle && (!currentTemplates[category][newTitle] || newTitle === title)) {
+                                    currentTemplates[category][newTitle] = currentTemplates[category][title];
+                                    if(newTitle !== title) delete currentTemplates[category][title];
+                                    rerender();
+                                } else {
+                                    e.target.value = title;
+                                }
+                            }
+                        });
+                        const descTextarea = createElement('textarea', {
+                            placeholder: 'Menybeskrivning', className: `w-full p-2 rounded-lg border ${theme.border} ${theme.inputBg} min-h-[80px]`,
+                            onchange: (e) => { currentTemplates[category][title] = e.target.value; }
+                        }, description);
+                         const deleteMenuBtn = createElement('button', { className: `text-sm font-semibold ${theme.accent}`,
+                            onclick: () => {
+                                delete currentTemplates[category][title];
+                                rerender();
+                            }
+                        }, 'Ta bort meny');
+                        menuRow.append(titleInput, descTextarea, deleteMenuBtn);
+                        menusContainer.append(menuRow);
+                    });
+                    
+                    const addMenuBtn = createElement('button', { className: `mt-4 text-sm font-semibold ${theme.accent}`,
+                        onclick: () => {
+                            const newTitle = `Ny meny ${Object.keys(menus).length + 1}`;
+                            currentTemplates[category][newTitle] = "";
+                            rerender();
+                        }
+                    }, '+ Lägg till meny');
+
+                    categorySection.append(categoryHeader, menusContainer, addMenuBtn);
+                    container.append(categorySection);
+                });
+
+                const addCategoryBtn = createElement('button', { className: `font-semibold ${theme.accent}`,
+                    onclick: () => {
+                        const newCategory = `Ny Kategori ${Object.keys(currentTemplates).length + 1}`;
+                        currentTemplates[newCategory] = {};
+                        rerender();
+                    }
+                }, '+ Lägg till Kategori');
+                container.append(addCategoryBtn);
+
+                return container;
+            };
+            
+            const contentWrapper = createElement('div', { className: 'flex-grow overflow-y-auto' });
+            const rerender = () => {
+                contentWrapper.innerHTML = '';
+                contentWrapper.append(renderEditorContent());
+            };
+            rerender();
+
+            const header = createElement('header', { className: `flex-shrink-0 p-4 border-b ${theme.border} flex items-center justify-between` }, 
+                createElement('h2', { className: 'text-xl font-bold' }, 'Hantera Menymallar'), 
+                createElement('button', {className:`p-2 ${theme.buttonSecondaryBg} rounded-lg`, innerHTML:icons.x('w-5 h-5'), onclick:closeModal})
+            );
+            
+            const footer = createElement('footer', {className: `flex-shrink-0 p-4 border-t ${theme.border} flex justify-end gap-4`},
+                createElement('button', {className:`px-6 py-2 font-bold ${theme.buttonSecondaryBg} ${theme.buttonSecondaryHover} rounded-lg`, onclick:closeModal}, 'Avbryt'),
+                createElement('button', {className:`px-6 py-2 font-bold ${theme.buttonPrimaryBg} ${theme.buttonPrimaryText} ${theme.buttonPrimaryHover} rounded-lg`, onclick:()=> {
+                    localStorage.setItem('klara-menu-templates', JSON.stringify(currentTemplates));
+                    setState({ menuTemplates: currentTemplates, isTemplateEditorOpen: false });
+                    showToast(t('toast.templates_saved'));
+                }}, 'Spara & Stäng')
+            );
+            
+            modalContent.append(header, contentWrapper, footer);
+
+            const overlay = createElement('div', { className: 'fixed inset-0 z-40 animate-fade-in-fast ' + theme.modalOverlay, onclick: closeModal });
+            const modalPositioner = createElement('div', { className: 'fixed inset-0 z-50 p-0 md:p-8 flex flex-col items-center justify-end md:justify-center', style: { pointerEvents: 'none' }, onclick: closeModal });
+            modalPositioner.append(modalContent);
+            
+            return [overlay, modalPositioner];
+        }
+
+        function renderQuoteModal() {
+            if (!state.formData) return null;
+            const theme = themes[state.theme];
+            const q = state.formData;
+            const closeModal = () => setState({ formData: null, selectedQuoteId: null, isModalStatusOpen: false });
+
+            const fragment = document.createDocumentFragment();
+
+            const overlay = createElement('div', { 
+                className: 'fixed inset-0 z-40 animate-fade-in-fast ' + theme.modalOverlay, 
+                onclick: closeModal 
+            });
+            fragment.append(overlay);
+
+            const modalPositioner = createElement('div', { 
+                className: 'fixed inset-0 z-50 p-0 md:p-8 flex flex-col items-center justify-end md:justify-center',
+                style: { pointerEvents: 'none' },
+                onclick: closeModal,
+            });
+
+            const modalContent = createElement('div', { 
+                className: `w-full max-h-full md:max-w-2xl lg:max-w-3xl ${theme.cardBg} flex flex-col shadow-2xl rounded-t-2xl md:rounded-2xl animate-slide-in-up md:animate-fade-in-scale`,
+                style: { pointerEvents: 'auto' },
+                onclick: e => e.stopPropagation()
+            });
+
+            const update = (key, value) => {
+                const newFormData = { ...state.formData, [key]: value };
+                newFormData.total = calculateTotal(newFormData);
+                state.formData = newFormData; 
+
+                const details = calculatePriceDetails(newFormData);
+                const subTotalEl = document.getElementById('modal-subtotal');
+                const vatEl = document.getElementById('modal-vat');
+                const totalEl = document.getElementById('modal-total');
+                const mobileTotalEl = document.getElementById('mobile-header-total');
+                
+                if(subTotalEl) subTotalEl.textContent = `Summa: ${details.subTotal.toLocaleString('sv-SE')} kr`;
+                if(vatEl) vatEl.textContent = `Moms: ${details.vat.toLocaleString('sv-SE')} kr`;
+                if(totalEl) totalEl.textContent = `Totalt: ${details.total.toLocaleString('sv-SE')} kr`;
+                if(mobileTotalEl) mobileTotalEl.textContent = `Totalt: ${details.total.toLocaleString('sv-SE')} kr`;
+            };
+            
+            const statusSelector = createElement('div', { className: 'relative' });
+            const statusButtonContent = () => [
+                createElement('div', { className: `w-3 h-3 ${statusColors[state.formData.status]} rounded-full` }),
+                createElement('span', { className: 'text-sm font-semibold' }, statusTextMap[state.formData.status]),
+                createElement('div', { innerHTML: icons.arrowDown('w-4 h-4 text-slate-400') })
+            ];
+            const statusButton = createElement('button', { className: 'flex items-center gap-2' }, ...statusButtonContent());
+            statusButton.onclick = () => {
+                 const menu = statusSelector.querySelector('.status-menu');
+                 if(menu) { menu.remove(); }
+                 else {
+                    const newMenu = createElement('div', { className: `status-menu absolute top-full mt-2 w-48 ${theme.cardBg} rounded-lg shadow-lg border ${theme.border} z-10 animate-fade-in-fast` });
+                    Object.keys(statusTextMap).forEach(s => newMenu.append(createElement('a', { href: '#', className: `block px-4 py-2 text-sm ${theme.text} hover:bg-slate-100 dark:hover:bg-slate-700`, onclick: e => { 
+                        e.preventDefault(); 
+                        update('status', s); 
+                        statusButton.innerHTML = '';
+                        statusButton.append(...statusButtonContent());
+                        newMenu.remove();
+                    } }, statusTextMap[s])));
+                    statusSelector.append(newMenu);
+                 }
+            };
+            statusSelector.append(statusButton);
+            
+            const headerContent = createElement('div', {className: 'flex-grow flex items-center gap-4'}, createElement('h2', { className: 'text-xl font-bold' }, q.recordId ? t('modal.edit_title') : t('modal.create_title')), statusSelector);
+            const header = createElement('header', { className: `flex-shrink-0 p-4 border-b ${theme.border}` }, createElement('div', {className: 'flex items-center justify-between'}, headerContent, createElement('div', {className:'flex items-center gap-2'}, createElement('button', {className:`p-2 ${theme.buttonSecondaryBg} rounded-lg transition-all-smooth btn-interaction`, innerHTML:icons.upload('w-5 h-5'), onclick:()=>showToast(t('toast.fortnox_sent'), 'info')}), createElement('button', {className:`p-2 ${theme.buttonSecondaryBg} rounded-lg transition-all-smooth btn-interaction`, innerHTML:icons.filePdf('w-5 h-5'), onclick:()=>generatePdf(q)}), createElement('button', {className:`p-2 ${theme.buttonSecondaryBg} rounded-lg transition-all-smooth btn-interaction`, innerHTML:icons.x('w-5 h-5'), onclick:closeModal}))));
+            
+            const createField = (key, label, type='text', fullWidth=false) => {
+                const props = {
+                    type, value: q[key] || (type === 'number' ? 0 : ''),
+                    className: `w-full p-3 rounded-lg border ${theme.border} ${theme.inputBg}`,
+                    oninput: e => { if (type !== 'number' && type !== 'date') update(key, e.target.value); },
+                    onchange: e => { if (type === 'number' || type === 'date') update(key, type === 'number' ? Number(e.target.value) : e.target.value); }
+                };
+                if(type==='time') {
+                    props.type = 'text';
+                    props.readOnly = true;
+                    props.onclick = () => setState({isTimePickerOpen: true, timePickerTarget: key});
+                }
+                const input = createElement('input', props);
+                return createElement('div', {className: fullWidth ? 'sm:col-span-2' : ''}, createElement('label', {className:'block text-sm font-medium mb-1'}, label), input);
+            };
+            const createTextarea = (key, label) => createElement('div', {className:'sm:col-span-2'}, createElement('label', {className:'block text-sm font-medium mb-1'}, label), createElement('textarea', {oninput: e=>update(key,e.target.value), className:`w-full p-3 rounded-lg border ${theme.border} ${theme.inputBg} min-h-[100px]`}, q[key]||''));
+            
+            const createMenuDescriptionField = () => {
+                const wrapper = createElement('div', { className: 'sm:col-span-2 relative' });
+                const labelWrapper = createElement('div', { className: 'flex justify-between items-center mb-1' });
+                const label = createElement('label', { className: 'block text-sm font-medium' }, 'Menybeskrivning');
+                
+                const buttonWrapper = createElement('div', { className: 'flex items-center gap-4' });
+                
+                const manageButton = createElement('button', {
+                    type: 'button',
+                    className: `flex items-center gap-1 text-sm ${theme.textSecondary} hover:${theme.text}`,
+                    onclick: () => setState({ isTemplateEditorOpen: true })
+                }, createElement('div',{innerHTML: icons.cog('w-4 h-4')}), 'Hantera mallar');
+
+                const selectButton = createElement('button', {
+                    type: 'button',
+                    className: `text-sm font-semibold ${theme.accent}`,
+                    onclick: (e) => {
+                        e.stopPropagation();
+                        const existingMenu = document.getElementById('menu-template-popup');
+                        if (existingMenu) { existingMenu.remove(); return; }
+
+                        const menuPopup = createElement('div', { id: 'menu-template-popup', className: `absolute right-0 mt-2 w-full md:w-96 max-h-80 overflow-y-auto ${theme.cardBg} rounded-lg shadow-2xl border ${theme.border} z-20 animate-fade-in-fast` });
+
+                        Object.entries(state.menuTemplates).forEach(([category, menus]) => {
+                            menuPopup.append(createElement('h4', { className: `px-4 py-2 font-bold text-xs uppercase ${theme.textSecondary} ${theme.bg}` }, category));
+                            Object.entries(menus).forEach(([title, description]) => {
+                                menuPopup.append(createElement('a', { href: '#', className: `block px-4 py-2 text-sm ${theme.text} hover:bg-slate-100 dark:hover:bg-slate-700`, onclick: (ev) => {
+                                    ev.preventDefault();
+                                    textarea.value = description;
+                                    update('menuDescription', description);
+                                    menuPopup.remove();
+                                } }, title));
+                            });
+                        });
+                        wrapper.append(menuPopup);
+                    }
+                }, 'Välj från mall');
+
+                buttonWrapper.append(manageButton, selectButton);
+                labelWrapper.append(label, buttonWrapper);
+
+                const textarea = createElement('textarea', {
+                    oninput: e => update('menuDescription', e.target.value),
+                    className: `w-full p-3 rounded-lg border ${theme.border} ${theme.inputBg} min-h-[100px]`
+                }, q.menuDescription || '');
+
+                wrapper.append(labelWrapper, textarea);
+                return wrapper;
+            };
+
+            const createSection = (title, id, fields) => {
+                const content = createElement('div', { className: `grid grid-cols-1 sm:grid-cols-2 gap-4 ${state.openSections[id] ? '' : 'hidden'}` }, ...(fields || []));
+                const icon = createElement('div',{className:'transition-transform '+(state.openSections[id] ? '':'rotate-180'), innerHTML:icons.chevronUp('w-5 h-5')});
+                const header = createElement('div', { className: 'flex items-center justify-between cursor-pointer mb-4', onclick: () => {
+                    const newSections = {...state.openSections, [id]: !state.openSections[id]};
+                    setState({ openSections: newSections });
+                }}, createElement('h3',{className:'text-lg font-semibold'}, title), icon);
+                return createElement('section', null, header, content);
+            };
+
+            const customCostsSection = () => {
+                const id = 'customCosts';
+                const container = createElement('div', { className: `space-y-4`});
+
+                const renderRows = (costList) => {
+                    container.innerHTML = '';
+                    (costList || []).forEach((cost, index) => {
+                        const row = createElement('div', {className: 'grid grid-cols-[1fr_auto_auto] gap-2 items-center'},
+                            createElement('input', {placeholder:'Beskrivning', value: cost.description, oninput: e => { state.formData.customCosts[index].description = e.target.value; update('customCosts', state.formData.customCosts); }, className: `p-2 rounded-lg border ${theme.border} ${theme.inputBg}` }),
+                            createElement('input', {type:'number', value: cost.amount, onchange: e => { state.formData.customCosts[index].amount = Number(e.target.value); update('customCosts', state.formData.customCosts); }, className: `w-24 p-2 rounded-lg border ${theme.border} ${theme.inputBg}` }),
+                            createElement('button', {className: 'p-2', innerHTML: icons.trash('w-5 h-5 text-red-500'), onclick: ()=>{
+                                const newCosts = state.formData.customCosts.filter((_,i)=>i!==index);
+                                update('customCosts', newCosts);
+                                renderRows(newCosts);
+                            }})
+                        );
+                        container.append(row);
+                    });
+                };
+                
+                renderRows(q.customCosts);
+                const addButton = createElement('button', {className: `text-sm font-semibold ${theme.accent}`, onclick: () => {
+                    const newCosts = [...(state.formData.customCosts || []), {description: '', amount: 0}];
+                    update('customCosts', newCosts);
+                    renderRows(newCosts);
+                }}, '+ Lägg till extra kostnad');
+                
+                const content = createElement('div', {className: `space-y-4 ${state.openSections[id] ? '' : 'hidden'}`}, container, addButton);
+                const icon = createElement('div',{className:'transition-transform '+(state.openSections[id] ? '':'rotate-180'), innerHTML:icons.chevronUp('w-5 h-5')});
+                const header = createElement('div', { className: 'flex items-center justify-between cursor-pointer mb-4', onclick: () => setState({ openSections: {...state.openSections, [id]: !state.openSections[id]}})}, createElement('h3',{className:'text-lg font-semibold'}, 'Extra kostnader'), icon);
+                return createElement('section', null, header, content);
+            };
+            
+            const staffSection = () => {
+                const id = 'staff';
+                const content = createElement('div', {className: `space-y-3 ${state.openSections[id] ? '' : 'hidden'}`});
+                
+                state.staff.forEach(person => {
+                    const isChecked = (q.assignedStaff || []).includes(person.id);
+                    const checkbox = createElement('input', {
+                        type:'checkbox', 
+                        checked: isChecked, 
+                        id: `staff-check-${person.id}`,
+                        onchange: e => {
+                            const currentStaff = [...(state.formData.assignedStaff || [])];
+                            if (e.target.checked) {
+                                if (!currentStaff.includes(person.id)) currentStaff.push(person.id);
+                            } else {
+                                const index = currentStaff.indexOf(person.id);
+                                if (index > -1) currentStaff.splice(index, 1);
+                            }
+                            update('assignedStaff', currentStaff);
+                        }, 
+                        className:'h-5 w-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500'
+                    });
+                    const label = createElement('label', { for: `staff-check-${person.id}`, className: 'flex-grow' }, `${person.name} (${person.role})`);
+                    content.append(createElement('div', {className: 'flex items-center gap-4'}, checkbox, label));
+                });
+
+                const icon = createElement('div',{className:'transition-transform '+(state.openSections[id] ? '':'rotate-180'), innerHTML:icons.chevronUp('w-5 h-5')});
+                const header = createElement('div', { className: 'flex items-center justify-between cursor-pointer mb-4', onclick: () => setState({ openSections: {...state.openSections, [id]: !state.openSections[id]}})}, createElement('h3',{className:'text-lg font-semibold'}, 'Tilldela Personal'), icon);
+                return createElement('section', null, header, content);
+            };
+
+            const dietSection = () => {
+                const id = 'diets';
+                const content = createElement('div', {className: `space-y-4 ${state.openSections[id] ? '':'hidden'}`});
+                
+                const standardDiets = { vegetarian: 'Vegetarian', vegan: 'Vegan', gluten: 'Glutenfritt', laktos: 'Laktosfritt', notallergi: 'Nötallergi' };
+                Object.entries(standardDiets).forEach(([key, label]) => {
+                    const count = q.standardDiets && q.standardDiets[key];
+                    const isChecked = count !== undefined && count > 0;
+                    
+                    const numberInput = createElement('input', {type:'number', min:'1', value: count || '1', onchange: e=>update('standardDiets',{...(q.standardDiets||{}), [key]:Number(e.target.value) || 1}), className:`w-20 p-2 rounded-lg border ${theme.border} ${theme.inputBg} ${!isChecked ? 'hidden':''}`});
+                    
+                    const checkbox = createElement('input', {type:'checkbox', checked: isChecked, onchange: e => {
+                        const currentDiets = { ...state.formData.standardDiets };
+                        if (e.target.checked) {
+                            currentDiets[key] = count || 1;
+                        } else {
+                            delete currentDiets[key];
+                        }
+                        update('standardDiets', currentDiets);
+                        numberInput.classList.toggle('hidden', !e.target.checked);
+                        if (e.target.checked) {
+                            numberInput.value = '1';
+                        }
+                    }, className:'h-5 w-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500'});
+                    content.append(createElement('div',{className:'flex items-center gap-4'}, checkbox, createElement('label',{className:'flex-grow'},label), numberInput));
+                });
+                
+                const customDietsContainer = createElement('div', {className: 'space-y-2'});
+                const renderCustomDietRows = (dietList) => {
+                    customDietsContainer.innerHTML = '';
+                    (dietList || []).forEach((diet, index) => {
+                        const row = createElement('div', {className: 'grid grid-cols-[1fr_auto_auto] gap-2 items-center'},
+                            createElement('input', {placeholder:'Beskrivning', value: diet.description, oninput: e => { state.formData.customDiets[index].description = e.target.value; update('customDiets', state.formData.customDiets); }, className: `p-2 rounded-lg border ${theme.border} ${theme.inputBg}` }),
+                            createElement('input', {type:'number', min:1, value: diet.count, onchange: e => { state.formData.customDiets[index].count = Number(e.target.value); update('customDiets', state.formData.customDiets); }, className: `w-20 p-2 rounded-lg border ${theme.border} ${theme.inputBg}` }),
+                            createElement('button', {className: 'p-2', innerHTML: icons.trash('w-5 h-5 text-red-500'), onclick: () => {
+                                const newDiets = state.formData.customDiets.filter((_,i)=> i !== index);
+                                update('customDiets', newDiets);
+                                renderCustomDietRows(newDiets);
+                            }})
+                        );
+                        customDietsContainer.append(row);
+                    });
+                }
+                renderCustomDietRows(q.customDiets);
+
+                content.append(createElement('hr', {className: `my-4 ${theme.border}`}));
+                content.append(createElement('h4', {className: 'font-semibold'}, 'Övrig Specialkost'));
+                content.append(customDietsContainer);
+                content.append(createElement('button', {className: `text-sm font-semibold ${theme.accent}`, onclick: () => {
+                    const newDiets = [...(state.formData.customDiets||[]), {id: `d-${Date.now()}`, description:'', count: 1}];
+                    update('customDiets', newDiets);
+                    renderCustomDietRows(newDiets);
+                }}, '+ Lägg till övrig specialkost'));
+
+                const icon = createElement('div',{className:'transition-transform '+(state.openSections[id] ? '':'rotate-180'), innerHTML:icons.chevronUp('w-5 h-5')});
+                const header = createElement('div', { className: 'flex items-center justify-between cursor-pointer mb-4', onclick: () => setState({ openSections: {...state.openSections, [id]: !state.openSections[id]}})}, createElement('h3',{className:'text-lg font-semibold'}, 'Specialkost & Allergener'), icon);
+                return createElement('section', null, header, content);
+            };
+            const formWrapper = createElement('div', { className: 'flex-grow overflow-y-auto p-4 md:p-6 space-y-6' },
+                createSection('Kund & Event', 'info', [ createField('customer', 'Kundnamn'), createField('contactPerson', 'Kontaktperson'), createField('customerType', 'Kundtyp'), createField('customerIdNumber', 'Org/Personnummer'), createField('contactEmail', 'E-post', 'email'), createField('contactPhone', 'Telefon', 'tel'), createField('address', 'Adress', 'text', true), createField('guestCount', 'Antal gäster', 'number'), createField('eventDate', 'Eventdatum', 'date'), createField('eventStartTime', 'Starttid', 'time'), createField('eventEndTime', 'Sluttid', 'time') ]),
+                createSection('Meny & Pris', 'menu', [ createField('pricePerGuest', 'Pris per kuvert (exkl. moms)', 'number'), createMenuDescriptionField(), createTextarea('customerRequests', 'Kundens önskemål') ]),
+                createSection('Personal & Kostnader', 'costs', [ createField('numChefs', 'Antal Kockar', 'number'), createField('chefCost', 'Kostnad kockar', 'number'), createField('numServingStaff', 'Antal Servering', 'number'), createField('servingStaffCost', 'Kostnad servering', 'number'), createField('discountAmount', 'Rabatt', 'number', true) ]),
+                customCostsSection(),
+                dietSection(),
+                staffSection(),
+                createSection('Interna Noteringar', 'internal', [ createTextarea('internalComment', 'Interna noteringar') ])
+            );
+
+            const { subTotal, vat, total } = calculatePriceDetails(q);
+            const footer = createElement('footer', {className: `flex-shrink-0 border-t ${theme.border}`});
+
+            const mobileHeader = createElement('div', {
+                className: 'p-4 flex md:hidden justify-between items-center cursor-pointer', 
+                onclick: () => setState({ isModalFooterCollapsed: !state.isModalFooterCollapsed })
+            },
+                createElement('div',{id: 'mobile-header-total', className:'text-xl font-bold'}, `Totalt: ${total.toLocaleString('sv-SE')} kr`),
+                createElement('button', {
+                    className: 'p-1',
+                    innerHTML: state.isModalFooterCollapsed ? icons.chevronUp('w-6 h-6') : icons.arrowDown('w-6 h-6')
+                })
+            );
+
+            const mainFooterContent = createElement('div', {
+                className: `px-4 pb-4 md:p-4 ${state.isModalFooterCollapsed ? 'hidden' : 'block'} md:block`
+            });
+
+            mainFooterContent.append(createElement('div', {className:'hidden md:flex justify-end text-sm gap-4 mb-3'}, 
+                createElement('span', {id:'modal-subtotal'}, `Summa: ${subTotal.toLocaleString('sv-SE')} kr`), 
+                createElement('span', {id:'modal-vat'}, `Moms: ${vat.toLocaleString('sv-SE')} kr`))
+            );
+            
+            const footerActions = createElement('div', {className:'flex flex-col md:flex-row md:justify-between md:items-center gap-3'});
+            const deleteButton = createElement('button', {
+                className: `w-full md:w-auto justify-center px-4 py-2 font-semibold text-red-500 hover:bg-red-100 dark:hover:bg-red-500/10 rounded-lg flex items-center gap-2 transition-all-smooth btn-interaction`,
+                onclick: () => {
+                    if (!q.recordId) {
+                        closeModal();
+                        showToast('Utkast raderat.');
+                    } else {
+                        closeModal();
+                        setTimeout(() => setState({ isDeleteConfirmModalOpen: true, quoteToDelete: q }), 100);
+                    }
+                }
+            }, createElement('div', {innerHTML: icons.trash('w-5 h-5')}), 'Radera');
+
+            const mainActions = createElement('div', {className:'flex flex-col md:flex-row items-center gap-3 w-full md:w-auto'},
+                createElement('div',{id:'modal-total', className:'hidden md:block text-2xl font-bold order-first md:order-none md:mr-4'}, `Totalt: ${total.toLocaleString('sv-SE')} kr`),
+                createElement('button',{className:`w-full md:w-auto px-6 py-3 font-bold ${theme.buttonSecondaryBg} ${theme.buttonSecondaryHover} rounded-lg transition-all-smooth btn-interaction`, onclick:()=>{handleSaveQuote(state.formData); closeModal()}}, 'Spara'),
+                createElement('button',{className:`w-full md:w-auto px-6 py-3 font-bold ${theme.buttonPrimaryBg} ${theme.buttonPrimaryText} ${theme.buttonPrimaryHover} rounded-lg transition-all-smooth btn-interaction`, onclick:()=> initiateSendProposal(state.formData) }, 'Skicka Förslag')
+            );
+
+            footerActions.append(deleteButton, mainActions);
+            mainFooterContent.append(footerActions);
+            
+            footer.append(mobileHeader, mainFooterContent)
+
+            modalContent.append(header, formWrapper, footer);
+            modalPositioner.append(modalContent);
+            fragment.append(modalPositioner);
+            
+            return fragment;
+        }
+
+        function renderApp() {
+            while (appRoot.firstChild) appRoot.removeChild(appRoot.firstChild);
+            if (!state.isLoggedIn) { appRoot.append(renderLogin()); return; }
+            const { mainWrapper, mainContent } = renderAppShell();
+            if (state.activeView === 'quotes') {
+                mainContent.append(renderDashboard());
+            } else if (state.activeView === 'analytics') {
+                mainContent.append(renderAnalyticsPage());
+            } else if (state.activeView === 'calendar') {
+                mainContent.append(renderCalendarPage());
+            } else if (state.activeView === 'wishlist') {
+                mainContent.append(renderWishlistPage());
+            } else if (state.activeView === 'staff') {
+                mainContent.append(renderStaffPage());
+            }
+            appRoot.append(mainWrapper);
+            if (state.formData) appRoot.append(renderQuoteModal());
+            if (state.isEmailModalOpen) appRoot.append(renderEmailModal());
+            if (state.isTemplateEditorOpen) appRoot.append(...renderTemplateEditorModal());
+            if (state.selectedWishlistItem) appRoot.append(renderWishlistModal());
+            
+            if(state.isTimePickerOpen) appRoot.append(renderTimePicker());
+            if(state.toast) appRoot.append(renderToast());
+            if(state.isDeleteConfirmModalOpen) appRoot.append(renderDeleteConfirmModal());
+        }
+        
+        document.body.addEventListener('click', (e) => {
+            const menusToClose = document.querySelectorAll('#global-card-status-menu, #global-filter-status-menu, #menu-template-popup');
+            let clickedOnMenuButton = e.target.closest('button'); 
+
+            let shouldClose = true;
+            if(clickedOnMenuButton){
+                 const clickFn = clickedOnMenuButton.onclick?.toString();
+                 if(clickFn && (clickFn.includes('global-card-status-menu') || clickFn.includes('global-filter-status-menu') || clickFn.includes('menu-template-popup'))){
+                    shouldClose = false;
+                 }
+            }
+            
+            if (shouldClose) {
+                menusToClose.forEach(menu => menu.remove());
+                 if (state.openCardMenu.id) {
+                     setState({openCardMenu: {id: null, target: null}}, {render: false});
+                 }
+            }
+        });
+
+
+        document.addEventListener('DOMContentLoaded', () => { 
+             const savedTheme = localStorage.getItem('klara-theme') || 'light';
+             state.theme = savedTheme;
+             document.documentElement.classList.toggle('dark', savedTheme === 'dark');
+             
+             const savedTemplates = localStorage.getItem('klara-menu-templates');
+             try {
+                if (savedTemplates) {
+                    state.menuTemplates = JSON.parse(savedTemplates);
+                } else {
+                    state.menuTemplates = defaultMenuTemplates;
+                }
+             } catch (e) {
+                console.error("Kunde inte ladda menymallar:", e);
+                state.menuTemplates = defaultMenuTemplates;
+             }
+             
+             const savedVotes = localStorage.getItem('klara-user-votes');
+             if (savedVotes) {
+                 try { state.userVotes = JSON.parse(savedVotes); }
+                 catch (e) { console.error('Could not parse user votes', e); state.userVotes = {}; }
+             }
+
+             renderApp(); 
+        });
+        
+    </script>
+</body>
+</html>
+
+
