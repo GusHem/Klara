@@ -38,10 +38,19 @@
         .btn-interaction:active { transform: scale(0.98); }
         .card-interaction:hover { transform: translateY(-3px); box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.07), 0 4px 6px -4px rgb(0 0 0 / 0.07); }
         .dark .card-interaction:hover { box-shadow: 0 10px 15px -3px rgb(99 102 241 / 0.1), 0 4px 6px -4px rgb(99 102 241 / 0.1); }
-        @keyframes growUp { from { transform: scaleY(0); } to { transform: scaleY(1); } }
-        .animate-grow-up {
-            transform-origin: bottom;
-            animation: growUp 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+        .accordion-content {
+            overflow: hidden;
+            transition: max-height 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            max-height: 0;
+        }
+        .accordion-content.is-open {
+            max-height: 2000px;
+        }
+        .accordion-icon {
+            transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .accordion-icon.is-open {
+            transform: rotate(180deg);
         }
     </style>
 </head>
@@ -55,11 +64,11 @@
             isLoggedIn: false, isLoading: true, quotes: [], selectedQuoteId: null, activeView: 'quotes',
             filter: 'prioriterade', searchTerm: '', toast: null, showWidgets: true,
             theme: 'light',
-            formData: null, openSections: { info: true, menu: true, costs: true, customCosts: true, diets: true, staff: true, internal: true },
+            formData: null, openSections: { info: false, menu: false, costs: false, customCosts: false, diets: false, staff: false, internal: false },
             isTimePickerOpen: false, timePickerTarget: null, calendarViewDate: new Date(),
             displayLimit: 12, openCardMenu: { id: null, target: null },
             analyticsSubView: 'overview', isModalStatusOpen: false,
-            isEmailModalOpen: false, quoteToSend: null,
+            isConfirmModalOpen: false, quoteToSend: null,
             isDeleteConfirmModalOpen: false, quoteToDelete: null,
             isModalFooterCollapsed: false,
             menuTemplates: {},
@@ -70,8 +79,6 @@
                 { recordId: 'wish3', title: 'Statistik per anställd', description: 'Se statistik över hur många event varje anställd har arbetat på.', votes: 7, status: 'idé' },
                 { recordId: 'wish4', title: 'Bifoga bilder till ärenden', description: 'Ladda upp och bifoga bilder direkt i ett ärende, t.ex. från eventlokalen.', votes: 5, status: 'idé' }
             ],
-            selectedWishlistItem: null,
-            calendarSelectedDay: new Date(),
             userVotes: {},
             staff: [
                 { id: 's1', name: 'Klara Uggla', role: 'Hovmästare' },
@@ -165,6 +172,7 @@
                 setState({ quotes }, {render: false});
                 return Promise.resolve({ recordId: d.recordId || `rec${Date.now()}` });
             }
+            async sendProposal(payload) { console.log("Skickar förslag (simulerat):", payload); return this._post(N8N_ENDPOINTS.SEND_PROPOSAL, payload); }
             async deleteQuote(recordId) {
                 console.log("Raderar (simulerat):", recordId);
                 const quotes = state.quotes.filter(q => q.recordId !== recordId);
@@ -299,7 +307,23 @@
         };
 
         const formatDate = (date) => new Date(date).toLocaleDateString('sv-SE', { year: 'numeric', month: '2-digit', day: '2-digit' });
-        const calculatePriceDetails = (q) => { const base = (Number(q.guestCount) || 0) * (Number(q.pricePerGuest) || 0); const staff = (Number(q.chefCost) || 0) + (Number(q.servingStaffCost) || 0); const custom = (q.customCosts || []).reduce((s, c) => s + (Number(c.amount) || 0), 0); const subTotal = base + staff + custom - (Number(q.discountAmount) || 0); const vat = subTotal * 0.12; return { subTotal, vat, total: subTotal + vat }; };
+        const calculatePriceDetails = (q) => {
+            const foodAndStaffSubtotal = ((Number(q.guestCount) || 0) * (Number(q.pricePerGuest) || 0)) + (Number(q.chefCost) || 0) + (Number(q.servingStaffCost) || 0);
+            // Standard VAT for food/staff is 12%
+            const foodAndStaffVat = foodAndStaffSubtotal * 0.12;
+
+            const customCostsSubtotal = (q.customCosts || []).reduce((s, c) => s + (Number(c.amount) || 0), 0);
+            const customCostsVat = (q.customCosts || []).reduce((s, c) => {
+                const rate = (Number(c.vatRate) || 12) / 100; // Default to 12% if not set
+                return s + ((Number(c.amount) || 0) * rate);
+            }, 0);
+
+            const subTotal = foodAndStaffSubtotal + customCostsSubtotal - (Number(q.discountAmount) || 0);
+            const totalVat = foodAndStaffVat + customCostsVat;
+            const total = subTotal + totalVat;
+            
+            return { subTotal, vat: totalVat, total };
+        };
         const calculateTotal = (q) => calculatePriceDetails(q).total;
         
         function createElement(tag, props = {}, ...children) {
@@ -356,26 +380,30 @@
                 loadInitialData();
             } 
         }
-
-        function initiateSendProposal(quote) {
+        async function handleSendProposal(quote) {
+            setState({ isConfirmModalOpen: false, quoteToSend: null });
             const updatedQuote = { ...quote, status: 'förslag-skickat' };
             
-            // Spara den uppdaterade statusen 'förslag-skickat' först
+            const payload = {
+                ...transformPortalQuoteToN8nQuote(updatedQuote),
+                action: 'dispatch'
+            };
+
             const optimisticQuotes = state.quotes.map(q => q.id === updatedQuote.id ? updatedQuote : q);
-            setState({ quotes: optimisticQuotes, formData: null, isEmailModalOpen: true, quoteToSend: updatedQuote }, { render: false });
-            
-            // Spara i bakgrunden (simulerat)
-            dataService.saveQuote(transformPortalQuoteToN8nQuote(updatedQuote)).catch(e => {
-                console.error(e);
-                showToast('Kunde inte skicka förslag.', 'error');
-                loadInitialData(); // Återställ om det misslyckas
-            });
-
-            // Rendera appen på nytt för att visa modalen
-            renderApp();
-            showToast(t('toast.proposal_sent', {id: quote.id}));
+            setState({ quotes: optimisticQuotes, formData: null, selectedQuoteId: null });
+            try { 
+                await dataService.sendProposal(payload); 
+                showToast(t('toast.proposal_sent', {id: quote.id})); 
+            } catch (e) { 
+                console.error(e); 
+                if(e.message === 'NetworkError') {
+                    showToast('Nätverksfel: Kunde inte skicka förslag.', 'error');
+                } else {
+                    showToast('Ett okänt fel uppstod.', 'error');
+                }
+                loadInitialData(); 
+            }
         }
-
         async function handleDeleteQuote(quote) {
             setState({ isDeleteConfirmModalOpen: false, quoteToDelete: null });
 
@@ -515,11 +543,11 @@
              tableRows.push(['Mat', `${(quote.pricePerGuest || 0).toLocaleString('sv-SE')} kr x ${quote.guestCount}p`, formatCurrency((quote.guestCount || 0) * (quote.pricePerGuest || 0))]);
              if (quote.chefCost > 0) tableRows.push(['Kockar', 'Fast kostnad', formatCurrency(quote.chefCost)]); 
              if (quote.servingStaffCost > 0) tableRows.push(['Serveringspersonal', 'Fast kostnad', formatCurrency(quote.servingStaffCost)]); 
-             (quote.customCosts || []).forEach(c => tableRows.push([c.description, 'Extra kostnad', formatCurrency(c.amount)])); 
+             (quote.customCosts || []).forEach(c => tableRows.push([c.description, `Extra kostnad (${c.vatRate || 12}%)`, formatCurrency(c.amount)])); 
              if (quote.discountAmount > 0) tableRows.push(['Rabatt', '', `-${formatCurrency(quote.discountAmount)}`]);
              
              tableRows.push([{ content: 'Delsumma:', colSpan: 2, styles: { halign: 'right' } }, formatCurrency(subTotal)]);
-             tableRows.push([{ content: 'Moms (12%):', colSpan: 2, styles: { halign: 'right' } }, formatCurrency(vat)]);
+             tableRows.push([{ content: 'Moms:', colSpan: 2, styles: { halign: 'right' } }, formatCurrency(vat)]);
              tableRows.push([{ content: 'Totalt att betala:', colSpan: 2, styles: { halign: 'right', fontStyle: 'bold' } }, { content: formatCurrency(total), styles: { fontStyle: 'bold' } }]);
              
              // Dynamisk justering för att tabellen ska hamna NER (under vattenstämpeln)
@@ -569,69 +597,19 @@
         }
         function renderToast() { if (!state.toast) return null; const colors = { success: 'bg-green-500', error: 'bg-red-500', info: 'bg-blue-500' }; return createElement('div', { className: `fixed bottom-5 left-1/2 -translate-x-1/2 px-6 py-3 text-white font-medium rounded-full shadow-2xl z-50 animate-fade-in-fast ${colors[state.toast.type]}` }, state.toast.message); }
         
-        function renderEmailModal() {
-            if (!state.isEmailModalOpen) return null;
+        function renderConfirmModal() {
+            if(!state.isConfirmModalOpen) return null;
             const theme = themes[state.theme];
-            const q = state.quoteToSend;
-            
-            const closeModal = () => setState({ isEmailModalOpen: false, quoteToSend: null });
-            
-            const handleResponse = (newStatus, toastMessage) => {
-                const updatedQuote = { ...q, status: newStatus };
-                const updatedQuotes = state.quotes.map(quote => quote.id === q.id ? updatedQuote : quote);
-                setState({ quotes: updatedQuotes, isEmailModalOpen: false, quoteToSend: null });
-                showToast(toastMessage, 'success');
-                dataService.saveQuote(transformPortalQuoteToN8nQuote(updatedQuote)).catch(e => {
-                    console.error(e);
-                    showToast('Kunde inte spara svaret.', 'error');
-                    loadInitialData();
-                });
-            };
-
-            const overlay = createElement('div', { className: `fixed inset-0 z-50 ${theme.modalOverlay} flex items-center justify-center p-0 md:p-4 animate-fade-in-fast`, onclick: closeModal });
-            const modalContent = createElement('div', { className: `w-full h-full md:h-auto md:max-h-[90vh] md:max-w-3xl ${theme.cardBg} md:rounded-2xl shadow-2xl animate-fade-in-scale flex flex-col`, onclick: e => e.stopPropagation() });
-            
-            const simulationBanner = createElement('div', { 
-                className: `p-2 text-center text-sm ${theme.buttonPrimaryBg} ${theme.buttonPrimaryText} flex-shrink-0`
-            }, 'Detta är en simulerad kundvy. Klicka på knapparna nedan för att se hur statusen ändras.');
-
-            const emailBody = createElement('div', { className: 'p-6 md:p-8 overflow-y-auto' });
-            emailBody.innerHTML = `
-                <div class="text-center mb-8">
-                    <img src="https://raw.githubusercontent.com/GusHem/GusHem-Ugglan-Klara/refs/heads/main/frilagd-bild.svg" alt="Klara Logotyp" class="w-20 h-20 mx-auto">
-                </div>
-                <h2 class="text-2xl font-bold ${theme.text} mb-2">Hej ${q.customer || ''},</h2>
-                <p class="${theme.textSecondary} mb-6">Tack för intresset för Klara! Vi har satt ihop ett förslag för er tillställning.</p>
-                
-                <div class="border ${theme.border} rounded-xl p-4 space-y-3 mb-6">
-                    <div class="flex justify-between items-center"><span class="${theme.textSecondary}">Förslag</span><span class="font-semibold">${q.id}</span></div>
-                    <div class="flex justify-between items-center"><span class="${theme.textSecondary}">Datum</span><span class="font-semibold">${formatDate(q.eventDate)}</span></div>
-                    <div class="flex justify-between items-center"><span class="${theme.textSecondary}">Antal gäster</span><span class="font-semibold">${q.guestCount} personer</span></div>
-                    <div class="flex justify-between items-center"><span class="${theme.textSecondary}">Pris</span><span class="font-bold text-lg ${theme.accent}">${Math.round(q.total).toLocaleString('sv-SE')} kr</span></div>
-                </div>
-
-                <div class="border-t ${theme.border} pt-4 mb-6">
-                    <h3 class="font-bold mb-2">Meny</h3>
-                    <p class="text-sm ${theme.textSecondary}">${q.menuDescription}</p>
-                </div>
-
-                <div class="bg-slate-100 dark:bg-slate-800 rounded-xl p-6 text-center">
-                    <h3 class="font-bold mb-2">Passar detta er verksamhet?</h3>
-                    <p class="text-sm ${theme.textSecondary} mb-4">Svara genom att klicka på en av länkarna nedan.</p>
-                    <div class="flex flex-col sm:flex-row gap-4 justify-center">
-                        <button id="accept-proposal-btn" class="w-full sm:w-auto px-6 py-3 font-semibold text-white bg-green-500 hover:bg-green-600 rounded-lg transition-all-smooth btn-interaction">Ja, vi accepterar förslaget</button>
-                        <button id="decline-proposal-btn" class="w-full sm:w-auto px-6 py-3 font-semibold text-white bg-red-500 hover:bg-red-600 rounded-lg transition-all-smooth btn-interaction">Nej, vi önskar diskutera alternativ</button>
-                    </div>
-                </div>
-            `;
-            
-            modalContent.append(simulationBanner, emailBody);
-            
-            modalContent.querySelector('#accept-proposal-btn').onclick = () => handleResponse('godkänd', 'Förslag accepterat! Status uppdaterad.');
-            modalContent.querySelector('#decline-proposal-btn').onclick = () => handleResponse('förlorad', 'Svar registrerat. Status uppdaterad.');
-            
-            overlay.append(modalContent);
-            return overlay;
+            return createElement('div', { className: `fixed inset-0 z-50 ${theme.modalOverlay} flex items-center justify-center p-4 animate-fade-in-fast` },
+                createElement('div', { className: `${theme.cardBg} rounded-2xl p-6 shadow-2xl max-w-sm w-full text-center animate-fade-in-scale`},
+                    createElement('h2', { className: 'text-lg font-bold mb-2' }, 'Skicka förslag till kund?'),
+                    createElement('p', { className: `${theme.textSecondary} mb-6`}, 'Ett e-postmeddelande med förslaget kommer att skickas till kunden. Är du säker på att du vill fortsätta?'),
+                    createElement('div', { className: 'flex justify-center gap-4' },
+                        createElement('button', { className: `px-6 py-2 font-semibold rounded-lg ${theme.buttonSecondaryBg} ${theme.buttonSecondaryHover} transition-all-smooth btn-interaction`, onclick: () => setState({ isConfirmModalOpen: false, quoteToSend: null })}, 'Avbryt'),
+                        createElement('button', { className: `px-6 py-2 font-semibold rounded-lg ${theme.buttonPrimaryBg} ${theme.buttonPrimaryText} ${theme.buttonPrimaryHover} transition-all-smooth btn-interaction`, onclick: () => handleSendProposal(state.quoteToSend) }, 'Ja, skicka')
+                    )
+                )
+            );
         }
 
         function renderDeleteConfirmModal() {
@@ -959,21 +937,15 @@
             );
             
             // --- Revenue Chart ---
-            const revenueChartContainer = createElement('div', {className: `relative lg:col-span-2 ${theme.cardBg} border ${theme.border} rounded-2xl p-6 transition-all-smooth card-interaction overflow-hidden`});
-            revenueChartContainer.append(createElement('h3', {className: 'text-lg font-bold mb-4 z-10 relative'}, 'Omsättning per månad (Betalda)'));
-            
-            const watermark = createElement('img', {
-                src: 'https://raw.githubusercontent.com/GusHem/GusHem-Ugglan-Klara/refs/heads/main/frilagd-bild.svg',
-                className: 'absolute inset-0 w-1/2 h-1/2 m-auto opacity-5 pointer-events-none'
-            });
-            revenueChartContainer.append(watermark);
+            const revenueChartContainer = createElement('div', {className: `lg:col-span-2 ${theme.cardBg} border ${theme.border} rounded-2xl p-6 transition-all-smooth card-interaction`});
+            revenueChartContainer.append(createElement('h3', {className: 'text-lg font-bold mb-4'}, 'Omsättning per månad (Betalda)'));
 
             const monthlyRevenue = {};
             const monthOrder = ['sep', 'okt', 'nov'];
             monthOrder.forEach(m => monthlyRevenue[m] = 0);
 
             paidQuotes.forEach(q => {
-                const month = new Date(q.eventDate).toLocaleString('sv-SE', { month: 'short' }).replace('.', '');
+                const month = new Date(q.eventDate).toLocaleString('sv-SE', { month: 'short' });
                 if (monthOrder.includes(month)) {
                     monthlyRevenue[month] = (monthlyRevenue[month] || 0) + q.total;
                 }
@@ -982,27 +954,18 @@
             const chartData = Object.entries(monthlyRevenue);
             const maxRevenue = Math.max(...chartData.map(d => d[1]), 1);
 
-            const chart = createElement('div', {className: 'h-64 flex items-end justify-around gap-4 z-10 relative'});
+            const chart = createElement('div', {className: 'h-64 flex items-end justify-around gap-4'});
             if (chartData.some(d => d[1] > 0)) {
-                chartData.forEach(([month, revenue], index) => {
+                chartData.forEach(([month, revenue]) => {
                     const barHeight = (revenue / maxRevenue * 100);
-                    const barWrapper = createElement('div', { className: 'flex flex-col items-center justify-end flex-grow h-full' });
-                    
-                    const revenueText = createElement('p', { 
-                        className: `text-xs font-bold ${theme.textSecondary} mb-1 opacity-0 whitespace-nowrap`,
-                        style: `animation: fadeIn 0.5s ease ${index * 0.1 + 0.3}s forwards;`
-                    }, `${(revenue / 1000).toFixed(0)}k kr`);
-
-                    const bar = createElement('div', {
-                        className: `w-full rounded-t-md ${theme.buttonPrimaryBg} transition-colors animate-grow-up`,
-                        style: `height: ${barHeight}%; animation-delay: ${index * 0.1}s;`
-                    });
-
-                    barWrapper.append(revenueText, bar, createElement('p', {className: `text-xs mt-2 font-semibold ${theme.textSecondary}`}, month));
-                    chart.append(barWrapper);
+                    const bar = createElement('div', {className: 'flex flex-col items-center flex-grow'}, 
+                        createElement('div', {className: `w-full rounded-t-md ${theme.buttonPrimaryBg} transition-all-smooth`, style: {height: `${barHeight}%`}}),
+                        createElement('p', {className: `text-xs mt-2 font-semibold ${theme.textSecondary}`}, month)
+                    );
+                    chart.append(bar);
                 });
             } else {
-                chart.className = 'h-64 flex items-center justify-center z-10 relative';
+                chart.className = 'h-64 flex items-center justify-center';
                 chart.append(createElement('p', {className: theme.textSecondary}, 'Ingen omsättning att visa för perioden.'));
             }
             revenueChartContainer.append(chart);
@@ -1039,24 +1002,23 @@
                 createElement('p', { className: `mt-1 text-lg ${theme.textSecondary}` }, 'En översikt av inbokade event.')
             );
             const calendarContainer = createElement('div', { className: 'mt-6' });
-
-            const controls = createElement('div', { className: 'flex items-center justify-between mb-4'},
-                createElement('h2', { className: 'text-xl font-bold'}, `${new Date(state.calendarViewDate).toLocaleString('sv-SE', { month: 'long', year: 'numeric' })}`),
-                createElement('div', { className: 'flex items-center gap-2'},
-                    createElement('button', { className: `p-2 rounded-lg ${theme.buttonSecondaryBg} ${theme.buttonSecondaryHover} transition-all-smooth btn-interaction`, innerHTML: icons.chevronLeft('w-5 h-5'), onclick: () => setState({ calendarViewDate: new Date(state.calendarViewDate.setMonth(state.calendarViewDate.getMonth() - 1)), calendarSelectedDay: new Date(state.calendarViewDate.getFullYear(), state.calendarViewDate.getMonth(), 1) }) }),
-                    createElement('button', { className: `p-2 rounded-lg ${theme.buttonSecondaryBg} ${theme.buttonSecondaryHover} transition-all-smooth btn-interaction`, innerHTML: icons.chevronRight('w-5 h-5'), onclick: () => setState({ calendarViewDate: new Date(state.calendarViewDate.setMonth(state.calendarViewDate.getMonth() + 1)), calendarSelectedDay: new Date(state.calendarViewDate.getFullYear(), state.calendarViewDate.getMonth(), 1) }) })
-                )
-            );
-
-            calendarContainer.append(controls, renderCalendarGridView(), renderMobileCalendarView());
+            calendarContainer.append(renderCalendarView());
             return createElement('div', {}, header, calendarContainer);
         }
 
-        function renderCalendarGridView() {
+        function renderCalendarView() {
             const theme = themes[state.theme];
             const today = new Date();
             const currentDate = state.calendarViewDate;
-            
+            const monthNames = ["Januari", "Februari", "Mars", "April", "Maj", "Juni", "Juli", "Augusti", "September", "Oktober", "November", "December"];
+            const header = createElement('div', { className: 'flex items-center justify-between mb-4'},
+                createElement('h2', { className: 'text-xl font-bold'}, `${monthNames[currentDate.getMonth()]} ${currentDate.getFullYear()}`),
+                createElement('div', { className: 'flex items-center gap-2'},
+                    createElement('button', { className: `p-2 rounded-lg ${theme.buttonSecondaryBg} ${theme.buttonSecondaryHover} transition-all-smooth btn-interaction`, innerHTML: icons.chevronLeft('w-5 h-5'), onclick: () => setState({ calendarViewDate: new Date(currentDate.setMonth(currentDate.getMonth() - 1)) }) }),
+                    createElement('button', { className: `p-2 rounded-lg ${theme.buttonSecondaryBg} ${theme.buttonSecondaryHover} transition-all-smooth btn-interaction`, innerHTML: icons.chevronRight('w-5 h-5'), onclick: () => setState({ calendarViewDate: new Date(currentDate.setMonth(currentDate.getMonth() + 1)) }) })
+                )
+            );
+
             const calendarGrid = createElement('div', { className: `grid grid-cols-7 gap-px ${theme.border.replace('border-', 'bg-')} border ${theme.border} rounded-lg overflow-hidden` });
             const days = ['Mån', 'Tis', 'Ons', 'Tor', 'Fre', 'Lör', 'Sön'];
             days.forEach(day => calendarGrid.append(createElement('div', { className: `text-center font-semibold text-sm py-2 ${theme.cardBg} ${theme.textSecondary}` }, day)));
@@ -1085,145 +1047,7 @@
                 calendarGrid.append(dayCell);
             }
 
-            return createElement('div', { className: `${theme.cardBg} p-4 rounded-2xl border ${theme.border} transition-all-smooth card-interaction hidden md:block` }, calendarGrid);
-        }
-        
-        function renderMobileCalendarView() {
-            const container = createElement('div', { className: 'md:hidden' });
-            container.append(renderCompactCalendarGrid(), renderSelectedDayEventList());
-            return container;
-        }
-
-        function renderCompactCalendarGrid() {
-            const theme = themes[state.theme];
-            const today = new Date();
-            const currentDate = state.calendarViewDate;
-            const selectedDate = state.calendarSelectedDay;
-
-            const grid = createElement('div', { className: `grid grid-cols-7 text-center ${theme.cardBg} p-2 rounded-2xl border ${theme.border}`});
-            const days = ['M', 'T', 'O', 'T', 'F', 'L', 'S'];
-            days.forEach(day => grid.append(createElement('div', { className: `font-bold text-sm ${theme.textSecondary}` }, day)));
-
-            const year = currentDate.getFullYear();
-            const month = currentDate.getMonth();
-            const firstDay = new Date(year, month, 1);
-            const lastDay = new Date(year, month + 1, 0);
-            const startDay = (firstDay.getDay() + 6) % 7; // Måndag = 0
-
-            for (let i = 0; i < startDay; i++) {
-                grid.append(createElement('div'));
-            }
-
-            for (let day = 1; day <= lastDay.getDate(); day++) {
-                const date = new Date(year, month, day);
-                const isToday = date.toDateString() === today.toDateString();
-                const isSelected = date.toDateString() === selectedDate.toDateString();
-                
-                const dayWrapper = createElement('div', { className: 'py-1' });
-                const dayButton = createElement('button', { 
-                    className: `w-9 h-9 flex flex-col items-center justify-center rounded-full transition-colors font-semibold ${isSelected ? 'bg-indigo-500 text-white' : isToday ? `ring-2 ring-indigo-500 ${theme.text}` : theme.text}`,
-                    onclick: () => setState({ calendarSelectedDay: date })
-                });
-
-                dayButton.append(createElement('span', null, day.toString()));
-
-                const eventsThisDay = state.quotes.filter(q => new Date(q.eventDate).toDateString() === date.toDateString());
-                if (eventsThisDay.length > 0) {
-                    dayButton.append(createElement('div', { className: `w-1 h-1 rounded-full mt-0.5 ${isSelected ? 'bg-white' : 'bg-indigo-500'}`}));
-                }
-
-                dayWrapper.append(dayButton);
-                grid.append(dayWrapper);
-            }
-             return grid;
-        }
-
-        function renderSelectedDayEventList() {
-            const theme = themes[state.theme];
-            const selectedDate = state.calendarSelectedDay;
-            
-            const container = createElement('div', { className: 'mt-6' });
-
-            const events = state.quotes
-                .filter(q => new Date(q.eventDate).toDateString() === selectedDate.toDateString())
-                .sort((a,b) => (a.eventStartTime || '00:00').localeCompare(b.eventStartTime || '00:00'));
-            
-            if (events.length === 0) {
-                container.append(createElement('div', { className: `${theme.cardBg} p-6 rounded-2xl text-center ${theme.textSecondary} border ${theme.border}` }, `Inga event för ${selectedDate.toLocaleDateString('sv-SE', { weekday: 'long' })} ${selectedDate.toLocaleDateString('sv-SE')}.`));
-            } else {
-                 const eventList = createElement('div', { className: 'space-y-3' });
-                 events.forEach(q => {
-                    eventList.append(createElement('div', {
-                        className: `flex items-center gap-3 p-3 rounded-xl ${theme.cardBg} border ${theme.border} transition-all-smooth card-interaction`,
-                        onclick: () => setState({selectedQuoteId: q.id, formData: JSON.parse(JSON.stringify(q))})
-                    },
-                        createElement('div', { className: `w-2 h-10 rounded-full ${statusColors[q.status]}` }),
-                        createElement('div', { className: 'flex-grow' },
-                            createElement('p', { className: 'font-bold' }, q.customer),
-                            createElement('p', { className: `text-sm ${theme.textSecondary}` }, `${q.guestCount} gäster`)
-                        ),
-                        createElement('p', { className: `text-sm font-semibold ${theme.textSecondary}` }, `${q.eventStartTime}`)
-                    ));
-                });
-                container.append(eventList);
-            }
-            return container;
-        }
-
-        function renderCalendarListView() {
-            // Denna funktion används inte längre, men behålls ifall vi vill återgå.
-            const theme = themes[state.theme];
-            const currentDate = state.calendarViewDate;
-            const year = currentDate.getFullYear();
-            const month = currentDate.getMonth();
-
-            const eventsThisMonth = state.quotes
-                .filter(q => {
-                    const eventDate = new Date(q.eventDate);
-                    return eventDate.getFullYear() === year && eventDate.getMonth() === month;
-                })
-                .sort((a, b) => new Date(a.eventDate) - new Date(b.eventDate));
-
-            const container = createElement('div', { className: 'block md:hidden space-y-4' });
-
-            if (eventsThisMonth.length === 0) {
-                container.append(createElement('div', { className: `${theme.cardBg} p-6 rounded-2xl text-center ${theme.textSecondary}` }, 'Inga event denna månad.'));
-                return container;
-            }
-
-            const eventsByDay = eventsThisMonth.reduce((acc, q) => {
-                const day = new Date(q.eventDate).getDate();
-                if (!acc[day]) acc[day] = [];
-                acc[day].push(q);
-                return acc;
-            }, {});
-
-            Object.entries(eventsByDay).forEach(([day, quotes]) => {
-                const dayOfWeek = new Date(year, month, day).toLocaleDateString('sv-SE', { weekday: 'long' });
-                const dayHeader = createElement('div', { className: 'flex items-baseline gap-3' },
-                    createElement('h3', { className: 'text-2xl font-bold' }, day),
-                    createElement('p', { className: `font-semibold ${theme.textSecondary}` }, dayOfWeek)
-                );
-                container.append(dayHeader);
-
-                const eventList = createElement('div', { className: 'space-y-2' });
-                quotes.forEach(q => {
-                    eventList.append(createElement('div', {
-                        className: `flex items-center gap-3 p-3 rounded-xl ${theme.cardBg} border ${theme.border} transition-all-smooth card-interaction`,
-                        onclick: () => setState({selectedQuoteId: q.id, formData: JSON.parse(JSON.stringify(q))})
-                    },
-                        createElement('div', { className: `w-2 h-10 rounded-full ${statusColors[q.status]}` }),
-                        createElement('div', { className: 'flex-grow' },
-                            createElement('p', { className: 'font-bold' }, q.customer),
-                            createElement('p', { className: `text-sm ${theme.textSecondary}` }, `${q.guestCount} gäster`)
-                        ),
-                        createElement('p', { className: `text-sm font-semibold ${theme.textSecondary}` }, `${q.eventStartTime}`)
-                    ));
-                });
-                container.append(eventList);
-            });
-
-            return container;
+            return createElement('div', { className: `${theme.cardBg} p-4 rounded-2xl border ${theme.border} transition-all-smooth card-interaction` }, header, calendarGrid);
         }
         
         function renderStaffPage() {
@@ -1297,12 +1121,11 @@
 
                 features.forEach(feature => {
                     const userVoted = !!state.userVotes[feature.recordId];
-                    const card = createElement('div', { className: `${theme.cardBg} border ${theme.border} rounded-2xl p-4 transition-all-smooth card-interaction flex flex-col sm:flex-row sm:items-center gap-4` });
+                    const card = createElement('div', { className: `${theme.cardBg} border ${theme.border} rounded-2xl p-5 flex items-center gap-4 transition-all-smooth card-interaction` });
                     
                     const voteButton = createElement('button', { 
-                        className: `w-full sm:w-16 h-16 rounded-lg transition-all-smooth btn-interaction flex-shrink-0 flex sm:flex-col items-center justify-center gap-2 sm:gap-0 ${userVoted ? 'bg-indigo-500 text-white cursor-not-allowed' : `${theme.buttonSecondaryBg} ${theme.buttonSecondaryHover}`}`,
+                        className: `flex flex-col items-center justify-center w-16 h-16 rounded-lg transition-all-smooth btn-interaction flex-shrink-0 ${userVoted ? 'bg-indigo-500 text-white cursor-not-allowed' : `${theme.buttonSecondaryBg} ${theme.buttonSecondaryHover}`}`,
                         onclick: (e) => {
-                            e.stopPropagation();
                             const newVotesState = { ...state.userVotes, [feature.recordId]: true };
                             setState({ userVotes: newVotesState }, { render: false });
                             localStorage.setItem('klara-user-votes', JSON.stringify(newVotesState));
@@ -1319,22 +1142,14 @@
                         createElement('span', { className: 'font-bold text-lg' }, feature.votes || 0)
                     );
                     
-                    const content = createElement('div', { 
-                        className: 'flex-grow min-w-0 cursor-pointer',
-                        onclick: () => {
-                            if (window.innerWidth < 768) { // Only trigger modal on mobile
-                                setState({ selectedWishlistItem: feature });
-                            }
-                        }
-                    });
-
+                    const content = createElement('div', { className: 'flex-grow min-w-0' });
                     content.append(
                         createElement('h3', { className: 'text-lg font-bold truncate' }, feature.title),
-                        createElement('p', { className: `text-sm ${theme.textSecondary} mt-1 truncate sm:whitespace-normal` }, feature.description || '')
+                        createElement('p', { className: `text-sm ${theme.textSecondary} mt-1` }, feature.description || '')
                     );
                     
                     const statusData = statusInfo[feature.status] || statusInfo.idé;
-                    const statusTag = createElement('div', { className: `mt-2 sm:mt-0 flex-shrink-0 text-xs font-semibold text-white px-2 py-1 rounded-full ${statusData.color}` }, statusData.text);
+                    const statusTag = createElement('div', { className: `flex-shrink-0 text-xs font-semibold text-white px-2 py-1 rounded-full ${statusData.color}` }, statusData.text);
                     
                     card.append(voteButton, content, statusTag);
                     featureListContainer.append(card);
@@ -1342,32 +1157,6 @@
             }
             
             return createElement('div', {}, header, featureListContainer);
-        }
-
-        function renderWishlistModal() {
-            if (!state.selectedWishlistItem) return null;
-            const theme = themes[state.theme];
-            const item = state.selectedWishlistItem;
-            const closeModal = () => setState({ selectedWishlistItem: null });
-
-            const overlay = createElement('div', { className: `fixed inset-0 z-50 ${theme.modalOverlay} flex items-end sm:items-center sm:justify-center p-0 sm:p-4 animate-fade-in-fast`, onclick: closeModal });
-            const modalContent = createElement('div', { 
-                className: `w-full max-w-lg ${theme.cardBg} rounded-t-2xl sm:rounded-2xl shadow-2xl animate-slide-in-up sm:animate-fade-in-scale flex flex-col`,
-                onclick: e => e.stopPropagation()
-            });
-
-            const header = createElement('header', { className: `flex-shrink-0 p-4 border-b ${theme.border} flex items-center justify-between` },
-                createElement('h2', { className: 'text-xl font-bold' }, item.title),
-                createElement('button', { className: `p-2 ${theme.buttonSecondaryBg} rounded-lg`, innerHTML: icons.x('w-5 h-5'), onclick: closeModal })
-            );
-
-            const body = createElement('div', { className: 'p-6' },
-                createElement('p', { className: `${theme.textSecondary}` }, item.description)
-            );
-
-            modalContent.append(header, body);
-            overlay.append(modalContent);
-            return overlay;
         }
 
         function renderTimePicker() {
@@ -1659,12 +1448,18 @@
             };
 
             const createSection = (title, id, fields) => {
-                const content = createElement('div', { className: `grid grid-cols-1 sm:grid-cols-2 gap-4 ${state.openSections[id] ? '' : 'hidden'}` }, ...(fields || []));
-                const icon = createElement('div',{className:'transition-transform '+(state.openSections[id] ? '':'rotate-180'), innerHTML:icons.chevronUp('w-5 h-5')});
-                const header = createElement('div', { className: 'flex items-center justify-between cursor-pointer mb-4', onclick: () => {
-                    const newSections = {...state.openSections, [id]: !state.openSections[id]};
-                    setState({ openSections: newSections });
-                }}, createElement('h3',{className:'text-lg font-semibold'}, title), icon);
+                const content = createElement('div', { className: `accordion-content grid grid-cols-1 sm:grid-cols-2 gap-4 ${state.openSections[id] ? 'is-open' : ''}` }, ...(fields || []));
+                const icon = createElement('div',{ className: `accordion-icon transition-transform ${state.openSections[id] ? 'is-open' : ''}`, innerHTML:icons.chevronUp('w-5 h-5') });
+
+                const header = createElement('div', { 
+                    className: 'flex items-center justify-between cursor-pointer mb-4', 
+                    onclick: () => {
+                        state.openSections[id] = !state.openSections[id];
+                        content.classList.toggle('is-open');
+                        icon.classList.toggle('is-open');
+                    }
+                }, createElement('h3',{ className:'text-lg font-semibold' }, title), icon);
+                
                 return createElement('section', null, header, content);
             };
 
@@ -1675,9 +1470,24 @@
                 const renderRows = (costList) => {
                     container.innerHTML = '';
                     (costList || []).forEach((cost, index) => {
-                        const row = createElement('div', {className: 'grid grid-cols-[1fr_auto_auto] gap-2 items-center'},
+                        const vatInputWrapper = createElement('div', { className: 'flex items-center gap-1' });
+                        vatInputWrapper.append(
+                            createElement('input', { 
+                                type:'number', 
+                                value: cost.vatRate === undefined ? 12 : cost.vatRate, 
+                                onchange: e => { 
+                                    state.formData.customCosts[index].vatRate = Number(e.target.value); 
+                                    update('customCosts', state.formData.customCosts); 
+                                }, 
+                                className: `w-20 p-2 rounded-lg border ${theme.border} ${theme.inputBg}` 
+                            }),
+                            createElement('span', { className: theme.textSecondary }, '%')
+                        );
+
+                        const row = createElement('div', {className: 'grid grid-cols-[1fr_auto_auto_auto] gap-2 items-center'},
                             createElement('input', {placeholder:'Beskrivning', value: cost.description, oninput: e => { state.formData.customCosts[index].description = e.target.value; update('customCosts', state.formData.customCosts); }, className: `p-2 rounded-lg border ${theme.border} ${theme.inputBg}` }),
                             createElement('input', {type:'number', value: cost.amount, onchange: e => { state.formData.customCosts[index].amount = Number(e.target.value); update('customCosts', state.formData.customCosts); }, className: `w-24 p-2 rounded-lg border ${theme.border} ${theme.inputBg}` }),
+                            vatInputWrapper,
                             createElement('button', {className: 'p-2', innerHTML: icons.trash('w-5 h-5 text-red-500'), onclick: ()=>{
                                 const newCosts = state.formData.customCosts.filter((_,i)=>i!==index);
                                 update('customCosts', newCosts);
@@ -1690,20 +1500,27 @@
                 
                 renderRows(q.customCosts);
                 const addButton = createElement('button', {className: `text-sm font-semibold ${theme.accent}`, onclick: () => {
-                    const newCosts = [...(state.formData.customCosts || []), {description: '', amount: 0}];
+                    const newCosts = [...(state.formData.customCosts || []), {description: '', amount: 0, vatRate: 12}];
                     update('customCosts', newCosts);
                     renderRows(newCosts);
                 }}, '+ Lägg till extra kostnad');
                 
-                const content = createElement('div', {className: `space-y-4 ${state.openSections[id] ? '' : 'hidden'}`}, container, addButton);
-                const icon = createElement('div',{className:'transition-transform '+(state.openSections[id] ? '':'rotate-180'), innerHTML:icons.chevronUp('w-5 h-5')});
-                const header = createElement('div', { className: 'flex items-center justify-between cursor-pointer mb-4', onclick: () => setState({ openSections: {...state.openSections, [id]: !state.openSections[id]}})}, createElement('h3',{className:'text-lg font-semibold'}, 'Extra kostnader'), icon);
+                const content = createElement('div', { className: `accordion-content space-y-4 ${state.openSections[id] ? 'is-open' : ''}` }, container, addButton);
+                const icon = createElement('div',{ className: `accordion-icon transition-transform ${state.openSections[id] ? 'is-open' : ''}`, innerHTML:icons.chevronUp('w-5 h-5')});
+                const header = createElement('div', { 
+                    className: 'flex items-center justify-between cursor-pointer mb-4', 
+                    onclick: () => {
+                        state.openSections[id] = !state.openSections[id];
+                        content.classList.toggle('is-open');
+                        icon.classList.toggle('is-open');
+                    }
+                }, createElement('h3',{className:'text-lg font-semibold'}, 'Extra kostnader'), icon);
                 return createElement('section', null, header, content);
             };
             
             const staffSection = () => {
                 const id = 'staff';
-                const content = createElement('div', {className: `space-y-3 ${state.openSections[id] ? '' : 'hidden'}`});
+                const content = createElement('div', {className: `accordion-content space-y-3 ${state.openSections[id] ? 'is-open' : ''}`});
                 
                 state.staff.forEach(person => {
                     const isChecked = (q.assignedStaff || []).includes(person.id);
@@ -1727,14 +1544,21 @@
                     content.append(createElement('div', {className: 'flex items-center gap-4'}, checkbox, label));
                 });
 
-                const icon = createElement('div',{className:'transition-transform '+(state.openSections[id] ? '':'rotate-180'), innerHTML:icons.chevronUp('w-5 h-5')});
-                const header = createElement('div', { className: 'flex items-center justify-between cursor-pointer mb-4', onclick: () => setState({ openSections: {...state.openSections, [id]: !state.openSections[id]}})}, createElement('h3',{className:'text-lg font-semibold'}, 'Tilldela Personal'), icon);
+                const icon = createElement('div',{className: `accordion-icon transition-transform ${state.openSections[id] ? 'is-open' : ''}`, innerHTML:icons.chevronUp('w-5 h-5')});
+                const header = createElement('div', { 
+                    className: 'flex items-center justify-between cursor-pointer mb-4', 
+                    onclick: () => {
+                        state.openSections[id] = !state.openSections[id];
+                        content.classList.toggle('is-open');
+                        icon.classList.toggle('is-open');
+                    }
+                }, createElement('h3',{className:'text-lg font-semibold'}, 'Tilldela Personal'), icon);
                 return createElement('section', null, header, content);
             };
 
             const dietSection = () => {
                 const id = 'diets';
-                const content = createElement('div', {className: `space-y-4 ${state.openSections[id] ? '':'hidden'}`});
+                const content = createElement('div', {className: `accordion-content space-y-4 ${state.openSections[id] ? 'is-open':''}`});
                 
                 const standardDiets = { vegetarian: 'Vegetarian', vegan: 'Vegan', gluten: 'Glutenfritt', laktos: 'Laktosfritt', notallergi: 'Nötallergi' };
                 Object.entries(standardDiets).forEach(([key, label]) => {
@@ -1786,8 +1610,15 @@
                     renderCustomDietRows(newDiets);
                 }}, '+ Lägg till övrig specialkost'));
 
-                const icon = createElement('div',{className:'transition-transform '+(state.openSections[id] ? '':'rotate-180'), innerHTML:icons.chevronUp('w-5 h-5')});
-                const header = createElement('div', { className: 'flex items-center justify-between cursor-pointer mb-4', onclick: () => setState({ openSections: {...state.openSections, [id]: !state.openSections[id]}})}, createElement('h3',{className:'text-lg font-semibold'}, 'Specialkost & Allergener'), icon);
+                const icon = createElement('div',{className: `accordion-icon transition-transform ${state.openSections[id] ? 'is-open' : ''}`, innerHTML:icons.chevronUp('w-5 h-5')});
+                const header = createElement('div', { 
+                    className: 'flex items-center justify-between cursor-pointer mb-4',
+                    onclick: () => {
+                        state.openSections[id] = !state.openSections[id];
+                        content.classList.toggle('is-open');
+                        icon.classList.toggle('is-open');
+                    }
+                }, createElement('h3',{className:'text-lg font-semibold'}, 'Specialkost & Allergener'), icon);
                 return createElement('section', null, header, content);
             };
             const formWrapper = createElement('div', { className: 'flex-grow overflow-y-auto p-4 md:p-6 space-y-6' },
@@ -1840,7 +1671,7 @@
             const mainActions = createElement('div', {className:'flex flex-col md:flex-row items-center gap-3 w-full md:w-auto'},
                 createElement('div',{id:'modal-total', className:'hidden md:block text-2xl font-bold order-first md:order-none md:mr-4'}, `Totalt: ${total.toLocaleString('sv-SE')} kr`),
                 createElement('button',{className:`w-full md:w-auto px-6 py-3 font-bold ${theme.buttonSecondaryBg} ${theme.buttonSecondaryHover} rounded-lg transition-all-smooth btn-interaction`, onclick:()=>{handleSaveQuote(state.formData); closeModal()}}, 'Spara'),
-                createElement('button',{className:`w-full md:w-auto px-6 py-3 font-bold ${theme.buttonPrimaryBg} ${theme.buttonPrimaryText} ${theme.buttonPrimaryHover} rounded-lg transition-all-smooth btn-interaction`, onclick:()=> initiateSendProposal(state.formData) }, 'Skicka Förslag')
+                createElement('button',{className:`w-full md:w-auto px-6 py-3 font-bold ${theme.buttonPrimaryBg} ${theme.buttonPrimaryText} ${theme.buttonPrimaryHover} rounded-lg transition-all-smooth btn-interaction`, onclick:()=> setState({ isConfirmModalOpen: true, quoteToSend: state.formData })}, 'Skicka Förslag')
             );
 
             footerActions.append(deleteButton, mainActions);
@@ -1872,12 +1703,11 @@
             }
             appRoot.append(mainWrapper);
             if (state.formData) appRoot.append(renderQuoteModal());
-            if (state.isEmailModalOpen) appRoot.append(renderEmailModal());
             if (state.isTemplateEditorOpen) appRoot.append(...renderTemplateEditorModal());
-            if (state.selectedWishlistItem) appRoot.append(renderWishlistModal());
             
             if(state.isTimePickerOpen) appRoot.append(renderTimePicker());
             if(state.toast) appRoot.append(renderToast());
+            if(state.isConfirmModalOpen) appRoot.append(renderConfirmModal());
             if(state.isDeleteConfirmModalOpen) appRoot.append(renderDeleteConfirmModal());
         }
         
@@ -1931,5 +1761,10 @@
     </script>
 </body>
 </html>
+
+
+
+
+
 
 
