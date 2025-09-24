@@ -131,12 +131,11 @@
         const N8N_ENDPOINTS = { SAVE_QUOTE: 'guldkant-offer-intake-v2', GET_QUOTES: 'quotes', SEND_PROPOSAL: 'quote/dispatch', DELETE_QUOTE: 'quote/delete' };
         
         function getPlaceholderQuotes() {
-            // NOTE: Dates for paid quotes are hardcoded to ensure analytics demo data is always present
-            // when viewing in autumn 2025, which matches the context of development.
+            // Hardcoded dates for September 2025 context to ensure analytics chart has predictable data.
             return [
                 { id: 'GK-1672614000000', recordId: 'rec002', status: 'förslag-skickat', customer: 'Svensson Bygg AB', contactPerson: 'Erik Svensson', contactEmail: 'erik@svenssonbygg.se', address: 'Företagsvägen 2, Vimmerby', guestCount: 120, eventDate: '2025-11-28', pricePerGuest: 375, menuDescription: 'Streetfoodbuffé för företagsevent.', total: 50400, assignedStaff: ['s1', 's3', 's4'] },
                 { id: 'GK-1672700400000', recordId: 'rec003', status: 'utkast', customer: 'Tech Solutions AB', contactPerson: 'Maria Lind', contactEmail: 'maria@techsolutions.se', address: 'Tech Park 5, Linköping', guestCount: 25, eventDate: '2025-11-15', pricePerGuest: 550, menuDescription: 'Anpassad meny för tech-mingel.', total: 15400, assignedStaff: [] },
-                { id: 'GK-1672786800000', recordId: 'rec004', status: 'genomförd', customer: 'Familjen Larsson', contactPerson: 'Sofia Larsson', contactEmail: 'sofia.l@mail.se', address: 'Gränsö Slott, Västervik', guestCount: 80, eventDate: '2025-09-12', pricePerGuest: 895, menuDescription: 'Exklusiv bröllopsmeny med tre rätter.', total: 80192, assignedStaff: ['s1', 's2', 's3', 's4'] },
+                { id: 'GK-1672786800000', recordId: 'rec004', status: 'betald', customer: 'Familjen Larsson', contactPerson: 'Sofia Larsson', contactEmail: 'sofia.l@mail.se', address: 'Gränsö Slott, Västervik', guestCount: 80, eventDate: '2025-09-12', pricePerGuest: 895, menuDescription: 'Exklusiv bröllopsmeny med tre rätter.', total: 80192, assignedStaff: ['s1', 's2', 's3', 's4'] },
                 { id: 'GK-1672873200000', recordId: 'rec005', status: 'förlorad', customer: 'Västerviks Kommun', contactPerson: 'Anders Persson', contactEmail: 'anders.p@kommunen.se', address: 'Stadshuset', guestCount: 200, eventDate: '2025-11-01', pricePerGuest: 350, menuDescription: 'Enklare lunchbuffé.', total: 78400, assignedStaff: [] },
                 { id: 'GK-1672959600000', recordId: 'rec006', status: 'betald', customer: 'Berg & Co.', contactPerson: 'Eva Berg', contactEmail: 'eva.berg@fest.se', address: 'Villa Vintervik, Stockholm', guestCount: 40, eventDate: '2025-09-05', pricePerGuest: 600, menuDescription: 'Lyxig skärgårdspytt och snittar.', total: 26880, assignedStaff: ['s1', 's2'] },
                 { id: 'GK-1673046000000', recordId: 'rec007', status: 'utkast', customer: 'Innovate AB', contactPerson: 'Johan Lundgren', contactEmail: 'johan.l@foretag.se', address: 'Kontorsgatan 8', guestCount: 30, eventDate: '2025-09-25', pricePerGuest: 300, menuDescription: 'Mingelbuffé Trädgårdsfest', total: 10080, assignedStaff: ['s4'] },
@@ -923,9 +922,10 @@
             const theme = themes[state.theme];
             const mainGrid = createElement('div', {className: 'grid grid-cols-1 lg:grid-cols-3 gap-6'});
 
-            // --- Key Metrics ---
+            // --- Key Metrics Section ---
             const keyMetricsContainer = createElement('div', {className: 'lg:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6'});
             
+            // Calculate Key Metrics
             const paidQuotes = state.quotes.filter(q => q.status === 'betald');
             const totalRevenue = paidQuotes.reduce((sum, q) => sum + q.total, 0);
             const averageDealValue = paidQuotes.length > 0 ? totalRevenue / paidQuotes.length : 0;
@@ -950,58 +950,73 @@
                 createMetricCard('Konverteringsgrad', `${conversionRate.toFixed(1)}%`, icons.checkCircle)
             );
             
-            // --- Revenue Chart ---
+            // --- Revenue Chart Section ---
             const revenueChartContainer = createElement('div', {className: `lg:col-span-2 ${theme.cardBg} border ${theme.border} rounded-2xl p-6 transition-all-smooth card-interaction`});
             revenueChartContainer.append(createElement('h3', {className: 'text-lg font-bold mb-4'}, 'Omsättning per månad (Betalda)'));
 
-            const months = [];
-            const currentMonthDate = new Date();
-            for (let i = 2; i >= 0; i--) {
-                const d = new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth() - i, 1);
-                months.push({
-                    year: d.getFullYear(),
-                    month: d.getMonth(),
-                    label: d.toLocaleString('sv-SE', { month: 'short' }).replace('.', '').toLowerCase(),
-                    revenue: 0
-                });
-            }
-
-            paidQuotes.forEach(q => {
-                // Manually parse YYYY-MM-DD to avoid timezone issues with new Date(string)
-                const parts = q.eventDate.split('-').map(Number);
-                const eventDate = new Date(parts[0], parts[1] - 1, parts[2]);
-                
-                const eventYear = eventDate.getFullYear();
-                const eventMonth = eventDate.getMonth();
-
-                const monthData = months.find(m => m.year === eventYear && m.month === eventMonth);
-                if (monthData) {
-                    monthData.revenue += q.total;
+            // Prepare data for the chart
+            const chartData = (() => {
+                const today = new Date(); // Using today to get the current context for months
+                const months = [];
+                // Get the last 3 months
+                for (let i = 2; i >= 0; i--) {
+                    const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
+                    months.push({
+                        year: date.getFullYear(),
+                        month: date.getMonth(), // 0-indexed month
+                        label: date.toLocaleString('sv-SE', { month: 'short' }).replace('.', '').toLowerCase(),
+                        revenue: 0
+                    });
                 }
-            });
+                
+                // Populate revenue data
+                paidQuotes.forEach(quote => {
+                    const quoteDateParts = quote.eventDate.split('-').map(Number);
+                    const quoteDate = new Date(quoteDateParts[0], quoteDateParts[1] - 1, quoteDateParts[2]);
+                    const quoteYear = quoteDate.getFullYear();
+                    const quoteMonth = quoteDate.getMonth();
+                    
+                    const monthBucket = months.find(m => m.year === quoteYear && m.month === quoteMonth);
+                    if (monthBucket) {
+                        monthBucket.revenue += quote.total;
+                    }
+                });
+                return months;
+            })();
 
-            const revenues = months.map(m => m.revenue);
-            const maxRevenue = Math.max(...revenues, 1);
-
-            const chart = createElement('div', {className: 'h-64 flex items-end justify-around gap-4'});
+            const revenues = chartData.map(d => d.revenue);
+            const maxRevenue = revenues.length > 0 ? Math.max(...revenues, 1) : 1; // Avoid division by zero
+            
+            const chartElement = createElement('div', {className: 'h-64 w-full flex items-end justify-around gap-4'});
             if (revenues.some(r => r > 0)) {
-                months.forEach(month => {
-                    const barHeight = (month.revenue / maxRevenue * 100);
-                    const bar = createElement('div', {className: 'flex flex-col items-center flex-grow'}, 
-                        createElement('div', {className: `w-full rounded-t-md ${theme.buttonPrimaryBg} transition-all-smooth`, style: {height: `${barHeight}%`}}),
-                        createElement('p', {className: `text-xs mt-2 font-semibold ${theme.textSecondary}`}, month.label)
-                    );
-                    chart.append(bar);
+                chartData.forEach(dataPoint => {
+                    const barHeightPercent = (dataPoint.revenue / maxRevenue) * 100;
+                    const barColumn = createElement('div', {className: 'flex flex-col items-center flex-grow h-full justify-end'});
+                    
+                    const revenueText = createElement('p', {
+                        className: `text-xs font-bold mb-1 ${theme.textSecondary}`
+                    }, `${(dataPoint.revenue / 1000).toFixed(0)}k`);
+
+                    const bar = createElement('div', {
+                        className: `w-full rounded-t-md ${theme.buttonPrimaryBg} transition-all duration-500 ease-out`,
+                        style: { height: `${barHeightPercent}%` }
+                    });
+                    
+                    const label = createElement('p', {className: `text-xs mt-2 font-semibold ${theme.textSecondary}`}, dataPoint.label);
+                    
+                    barColumn.append(revenueText, bar, label);
+                    chartElement.append(barColumn);
                 });
             } else {
-                chart.className = 'h-64 flex items-center justify-center';
-                chart.append(createElement('p', {className: theme.textSecondary}, 'Ingen omsättning att visa för perioden.'));
+                chartElement.className = 'h-64 flex items-center justify-center';
+                chartElement.append(createElement('p', {className: theme.textSecondary}, 'Ingen omsättning att visa för perioden.'));
             }
-            revenueChartContainer.append(chart);
+            revenueChartContainer.append(chartElement);
 
-            // --- Status Donut Chart ---
+
+            // --- Status Distribution Section ---
             const statusChartContainer = createElement('div', {className: `lg:col-span-1 ${theme.cardBg} border ${theme.border} rounded-2xl p-6 transition-all-smooth card-interaction`});
-             statusChartContainer.append(createElement('h3', {className: 'text-lg font-bold mb-4'}, 'Ärendestatus'));
+            statusChartContainer.append(createElement('h3', {className: 'text-lg font-bold mb-4'}, 'Ärendestatus'));
 
             const statusCounts = state.quotes.reduce((acc, q) => {
                 acc[q.status] = (acc[q.status] || 0) + 1;
@@ -1879,6 +1894,11 @@
     </script>
 </body>
 </html>
+
+
+
+
+
 
 
 
