@@ -131,8 +131,8 @@
         const N8N_ENDPOINTS = { SAVE_QUOTE: 'guldkant-offer-intake-v2', GET_QUOTES: 'quotes', SEND_PROPOSAL: 'quote/dispatch', DELETE_QUOTE: 'quote/delete' };
         
         function getPlaceholderQuotes() {
-            const today = new Date();
-            const formatDate = (date) => date.toISOString().split('T')[0];
+            // NOTE: Dates for paid quotes are hardcoded to ensure analytics demo data is always present
+            // when viewing in autumn 2025, which matches the context of development.
             return [
                 { id: 'GK-1672614000000', recordId: 'rec002', status: 'förslag-skickat', customer: 'Svensson Bygg AB', contactPerson: 'Erik Svensson', contactEmail: 'erik@svenssonbygg.se', address: 'Företagsvägen 2, Vimmerby', guestCount: 120, eventDate: '2025-11-28', pricePerGuest: 375, menuDescription: 'Streetfoodbuffé för företagsevent.', total: 50400, assignedStaff: ['s1', 's3', 's4'] },
                 { id: 'GK-1672700400000', recordId: 'rec003', status: 'utkast', customer: 'Tech Solutions AB', contactPerson: 'Maria Lind', contactEmail: 'maria@techsolutions.se', address: 'Tech Park 5, Linköping', guestCount: 25, eventDate: '2025-11-15', pricePerGuest: 550, menuDescription: 'Anpassad meny för tech-mingel.', total: 15400, assignedStaff: [] },
@@ -143,8 +143,8 @@
                 { id: 'GK-1673132400000', recordId: 'rec008', status: 'godkänd', customer: 'Familjen Nilsson', contactPerson: 'Anna Nilsson', contactEmail: 'nilsson@mail.com', address: 'Hemvägen 12', guestCount: 60, eventDate: '2025-11-02', pricePerGuest: 400, menuDescription: 'Klassikerbuffé', total: 26880, assignedStaff: ['s1', 's3'] },
                 { id: 'GK-1673218800000', recordId: 'rec009', status: 'förslag-skickat', customer: 'Marketing AB', contactPerson: 'Stina Jansson', contactEmail: 'event@marketing.com', address: 'Eventlokalen Stora scenen', guestCount: 150, eventDate: '2025-11-10', pricePerGuest: 450, menuDescription: 'Italiensk buffé och snittar.', total: 75600, assignedStaff: [] },
                 { id: 'GK-1673305200000', recordId: 'rec010', status: 'utkast', customer: 'Lina Andersson', contactPerson: 'Lina Andersson', contactEmail: 'lina.a@live.se', address: 'Lägenheten på Kullen', guestCount: 12, eventDate: '2025-09-28', pricePerGuest: 750, menuDescription: 'Jambalaya som kock-rätt', total: 10080, assignedStaff: ['s2'] },
-                { id: 'GK-1673400000000', recordId: 'rec011', status: 'betald', customer: 'Höstfesten Event', contactPerson: 'Karl Johansson', contactEmail: 'karl.j@event.se', address: 'Festlokalen', guestCount: 75, eventDate: '2025-10-18', pricePerGuest: 500, menuDescription: 'Italiensk buffé.', total: 42000, assignedStaff: ['s1', 's2', 's3'] },
-                { id: 'GK-1673500000000', recordId: 'rec012', status: 'betald', customer: 'Företagsgala AB', contactPerson: 'Sara Bergman', contactEmail: 'sara@foretagsgala.se', address: 'Stadshotellet', guestCount: 150, eventDate: '2025-11-22', pricePerGuest: 950, menuDescription: 'Exklusiv trerättersmeny.', total: 159600, assignedStaff: ['s1', 's2', 's3', 's4'] },
+                { id: 'GK-1673400000000', recordId: 'rec011', status: 'betald', customer: 'Höstfesten Event', contactPerson: 'Karl Johansson', contactEmail: 'karl.j@event.se', address: 'Festlokalen', guestCount: 75, eventDate: '2025-08-18', pricePerGuest: 500, menuDescription: 'Italiensk buffé.', total: 42000, assignedStaff: ['s1', 's2', 's3'] },
+                { id: 'GK-1673500000000', recordId: 'rec012', status: 'betald', customer: 'Företagsgala AB', contactPerson: 'Sara Bergman', contactEmail: 'sara@foretagsgala.se', address: 'Stadshotellet', guestCount: 150, eventDate: '2025-07-22', pricePerGuest: 950, menuDescription: 'Exklusiv trerättersmeny.', total: 159600, assignedStaff: ['s1', 's2', 's3', 's4'] },
             ].map(q => ({...q, customCosts:[], standardDiets:{}, customDiets:[], internalComment: '', customerRequests: '', eventStartTime: '18:00', eventEndTime: '23:00' }));
         }
 
@@ -954,33 +954,42 @@
             const revenueChartContainer = createElement('div', {className: `lg:col-span-2 ${theme.cardBg} border ${theme.border} rounded-2xl p-6 transition-all-smooth card-interaction`});
             revenueChartContainer.append(createElement('h3', {className: 'text-lg font-bold mb-4'}, 'Omsättning per månad (Betalda)'));
 
-            const monthlyRevenue = {};
-            const monthOrder = [];
-            const currentMonth = new Date();
+            const months = [];
+            const currentMonthDate = new Date();
             for (let i = 2; i >= 0; i--) {
-                const d = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - i, 1);
-                const monthShort = d.toLocaleString('sv-SE', { month: 'short' }).replace('.', '');
-                monthOrder.push(monthShort);
-                monthlyRevenue[monthShort] = 0;
+                const d = new Date(currentMonthDate.getFullYear(), currentMonthDate.getMonth() - i, 1);
+                months.push({
+                    year: d.getFullYear(),
+                    month: d.getMonth(),
+                    label: d.toLocaleString('sv-SE', { month: 'short' }).replace('.', '').toLowerCase(),
+                    revenue: 0
+                });
             }
 
             paidQuotes.forEach(q => {
-                const month = new Date(q.eventDate).toLocaleString('sv-SE', { month: 'short' }).replace('.', '');
-                if (monthOrder.includes(month)) {
-                    monthlyRevenue[month] = (monthlyRevenue[month] || 0) + q.total;
+                // Manually parse YYYY-MM-DD to avoid timezone issues with new Date(string)
+                const parts = q.eventDate.split('-').map(Number);
+                const eventDate = new Date(parts[0], parts[1] - 1, parts[2]);
+                
+                const eventYear = eventDate.getFullYear();
+                const eventMonth = eventDate.getMonth();
+
+                const monthData = months.find(m => m.year === eventYear && m.month === eventMonth);
+                if (monthData) {
+                    monthData.revenue += q.total;
                 }
             });
 
-            const chartData = Object.entries(monthlyRevenue);
-            const maxRevenue = Math.max(...chartData.map(d => d[1]), 1);
+            const revenues = months.map(m => m.revenue);
+            const maxRevenue = Math.max(...revenues, 1);
 
             const chart = createElement('div', {className: 'h-64 flex items-end justify-around gap-4'});
-            if (chartData.some(d => d[1] > 0)) {
-                chartData.forEach(([month, revenue]) => {
-                    const barHeight = (revenue / maxRevenue * 100);
+            if (revenues.some(r => r > 0)) {
+                months.forEach(month => {
+                    const barHeight = (month.revenue / maxRevenue * 100);
                     const bar = createElement('div', {className: 'flex flex-col items-center flex-grow'}, 
                         createElement('div', {className: `w-full rounded-t-md ${theme.buttonPrimaryBg} transition-all-smooth`, style: {height: `${barHeight}%`}}),
-                        createElement('p', {className: `text-xs mt-2 font-semibold ${theme.textSecondary}`}, month)
+                        createElement('p', {className: `text-xs mt-2 font-semibold ${theme.textSecondary}`}, month.label)
                     );
                     chart.append(bar);
                 });
@@ -1022,11 +1031,76 @@
                 createElement('p', { className: `mt-1 text-lg ${theme.textSecondary}` }, 'En översikt av inbokade event.')
             );
             const calendarContainer = createElement('div', { className: 'mt-6' });
-            calendarContainer.append(renderCalendarView());
+
+            if (window.innerWidth < 768) { // md breakpoint
+                calendarContainer.append(renderCalendarListView());
+            } else {
+                calendarContainer.append(renderCalendarGridView());
+            }
+            
             return createElement('div', {}, header, calendarContainer);
         }
 
-        function renderCalendarView() {
+        function renderCalendarListView() {
+            const theme = themes[state.theme];
+            const currentDate = state.calendarViewDate;
+            const monthNames = ["Januari", "Februari", "Mars", "April", "Maj", "Juni", "Juli", "Augusti", "September", "Oktober", "November", "December"];
+            
+            const header = createElement('div', { className: 'flex items-center justify-between mb-4'},
+                createElement('h2', { className: 'text-xl font-bold'}, `${monthNames[currentDate.getMonth()]} ${currentDate.getFullYear()}`),
+                createElement('div', { className: 'flex items-center gap-2'},
+                    createElement('button', { className: `p-2 rounded-lg ${theme.buttonSecondaryBg} ${theme.buttonSecondaryHover} transition-all-smooth btn-interaction`, innerHTML: icons.chevronLeft('w-5 h-5'), onclick: () => setState({ calendarViewDate: new Date(currentDate.setMonth(currentDate.getMonth() - 1)) }) }),
+                    createElement('button', { className: `p-2 rounded-lg ${theme.buttonSecondaryBg} ${theme.buttonSecondaryHover} transition-all-smooth btn-interaction`, innerHTML: icons.chevronRight('w-5 h-5'), onclick: () => setState({ calendarViewDate: new Date(currentDate.setMonth(currentDate.getMonth() + 1)) }) })
+                )
+            );
+
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+
+            const eventsInMonth = state.quotes
+                .filter(q => {
+                    const d = new Date(q.eventDate);
+                    return d.getFullYear() === year && d.getMonth() === month;
+                })
+                .sort((a,b) => new Date(a.eventDate) - new Date(b.eventDate));
+            
+            const listContainer = createElement('div', { className: 'space-y-1' });
+
+            if (eventsInMonth.length === 0) {
+                listContainer.append(createElement('div', {className: `${theme.cardBg} border ${theme.border} rounded-lg p-8 text-center`},
+                    createElement('p', {className: `${theme.textSecondary}`}, `Inga event inbokade för ${monthNames[month]}.`)
+                ));
+            } else {
+                let lastDate = null;
+                const dayNames = ['Sön', 'Mån', 'Tis', 'Ons', 'Tor', 'Fre', 'Lör'];
+                eventsInMonth.forEach(q => {
+                    const eventDate = new Date(q.eventDate);
+                    const dateString = eventDate.toDateString();
+                    if (dateString !== lastDate) {
+                        lastDate = dateString;
+                        const dayHeader = createElement('div', {className: `sticky top-16 z-10 ${theme.bg} py-2 border-b-2 ${theme.border}`},
+                            createElement('h3', {className: 'font-bold text-lg'}, `${dayNames[eventDate.getDay()]} ${eventDate.getDate()}`)
+                        );
+                        listContainer.append(dayHeader);
+                    }
+
+                    const eventCard = createElement('div', {className: `${theme.cardBg} border-b ${theme.border} p-4 flex items-center gap-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800`, onclick: () => setState({selectedQuoteId: q.id, formData: JSON.parse(JSON.stringify(q))})});
+                    eventCard.append(
+                        createElement('div', {className: `w-2 h-12 rounded-full ${statusColors[q.status]}`}),
+                        createElement('div', {className: 'flex-grow min-w-0'},
+                            createElement('p', {className: 'font-semibold truncate'}, q.customer),
+                            createElement('p', {className: `text-sm ${theme.textSecondary}`}, `${q.guestCount} gäster • ${q.eventStartTime}`)
+                        ),
+                        createElement('div', {className: `text-right text-sm ${theme.textSecondary}`}, `${Math.round(q.total).toLocaleString('sv-SE')} kr`)
+                    );
+                    listContainer.append(eventCard);
+                });
+            }
+            
+            return createElement('div', {}, header, listContainer);
+        }
+
+        function renderCalendarGridView() {
             const theme = themes[state.theme];
             const today = new Date();
             const currentDate = state.calendarViewDate;
@@ -1504,16 +1578,22 @@
                             createElement('span', { className: theme.textSecondary }, '%')
                         );
 
-                        const row = createElement('div', {className: 'grid grid-cols-[1fr_auto_auto_auto] gap-2 items-center'},
-                            createElement('input', {placeholder:'Beskrivning', value: cost.description, oninput: e => { state.formData.customCosts[index].description = e.target.value; update('customCosts', state.formData.customCosts); }, className: `p-2 rounded-lg border ${theme.border} ${theme.inputBg}` }),
-                            createElement('input', {type:'number', value: cost.amount, onchange: e => { state.formData.customCosts[index].amount = Number(e.target.value); update('customCosts', state.formData.customCosts); }, className: `w-24 p-2 rounded-lg border ${theme.border} ${theme.inputBg}` }),
-                            vatInputWrapper,
-                            createElement('button', {className: 'p-2', innerHTML: icons.trash('w-5 h-5 text-red-500'), onclick: ()=>{
-                                const newCosts = state.formData.customCosts.filter((_,i)=>i!==index);
-                                update('customCosts', newCosts);
-                                renderRows(newCosts);
-                            }})
-                        );
+                        const row = createElement('div', {className: 'flex flex-col md:flex-row md:items-center gap-2'});
+                        
+                        const descInput = createElement('input', {placeholder:'Beskrivning', value: cost.description, oninput: e => { state.formData.customCosts[index].description = e.target.value; update('customCosts', state.formData.customCosts); }, className: `p-2 rounded-lg border ${theme.border} ${theme.inputBg} md:flex-grow` });
+                        
+                        const controls = createElement('div', {className: 'flex items-center gap-2 flex-shrink-0'});
+                        const amountInput = createElement('input', {type:'number', value: cost.amount, onchange: e => { state.formData.customCosts[index].amount = Number(e.target.value); update('customCosts', state.formData.customCosts); }, className: `w-24 p-2 rounded-lg border ${theme.border} ${theme.inputBg}` });
+                        
+                        const deleteBtn = createElement('button', {className: 'p-2', innerHTML: icons.trash('w-5 h-5 text-red-500'), onclick: ()=>{
+                            const newCosts = state.formData.customCosts.filter((_,i)=>i!==index);
+                            update('customCosts', newCosts);
+                            renderRows(newCosts);
+                        }});
+                        
+                        controls.append(amountInput, vatInputWrapper, deleteBtn);
+                        row.append(descInput, controls);
+
                         container.append(row);
                     });
                 };
@@ -1783,15 +1863,22 @@
                  catch (e) { console.error('Could not parse user votes', e); state.userVotes = {}; }
              }
 
+             let resizeTimer;
+             window.addEventListener('resize', () => {
+                 clearTimeout(resizeTimer);
+                 resizeTimer = setTimeout(() => {
+                     if (state.activeView === 'calendar') {
+                         renderApp();
+                     }
+                 }, 250);
+             });
+
              renderApp(); 
         });
         
     </script>
 </body>
 </html>
-
-
-
 
 
 
