@@ -52,6 +52,20 @@
         .accordion-icon.is-open {
             transform: rotate(180deg);
         }
+        .collapsible-footer {
+            overflow: hidden;
+            transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease-out, padding 0.4s ease-out;
+            max-height: 500px;
+            opacity: 1;
+        }
+        .collapsible-footer.is-collapsed {
+            max-height: 0;
+            opacity: 0;
+            padding-top: 0 !important;
+            padding-bottom: 0 !important;
+        }
+        .footer-chevron { transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
+        .footer-chevron.is-collapsed { transform: rotate(-180deg); }
     </style>
 </head>
 <body class="bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 transition-colors duration-300">
@@ -941,11 +955,17 @@
             revenueChartContainer.append(createElement('h3', {className: 'text-lg font-bold mb-4'}, 'Omsättning per månad (Betalda)'));
 
             const monthlyRevenue = {};
-            const monthOrder = ['sep', 'okt', 'nov'];
-            monthOrder.forEach(m => monthlyRevenue[m] = 0);
+            const monthOrder = [];
+            const currentMonth = new Date();
+            for (let i = 2; i >= 0; i--) {
+                const d = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - i, 1);
+                const monthShort = d.toLocaleString('sv-SE', { month: 'short' }).replace('.', '');
+                monthOrder.push(monthShort);
+                monthlyRevenue[monthShort] = 0;
+            }
 
             paidQuotes.forEach(q => {
-                const month = new Date(q.eventDate).toLocaleString('sv-SE', { month: 'short' });
+                const month = new Date(q.eventDate).toLocaleString('sv-SE', { month: 'short' }).replace('.', '');
                 if (monthOrder.includes(month)) {
                     monthlyRevenue[month] = (monthlyRevenue[month] || 0) + q.total;
                 }
@@ -1634,19 +1654,27 @@
             const { subTotal, vat, total } = calculatePriceDetails(q);
             const footer = createElement('footer', {className: `flex-shrink-0 border-t ${theme.border}`});
 
+            const chevronIcon = createElement('div', {
+                id: 'modal-footer-chevron',
+                className: `footer-chevron ${state.isModalFooterCollapsed ? 'is-collapsed' : ''}`,
+                innerHTML: icons.chevronUp('w-6 h-6')
+            });
+
             const mobileHeader = createElement('div', {
                 className: 'p-4 flex md:hidden justify-between items-center cursor-pointer', 
-                onclick: () => setState({ isModalFooterCollapsed: !state.isModalFooterCollapsed })
+                onclick: () => {
+                    state.isModalFooterCollapsed = !state.isModalFooterCollapsed;
+                    document.getElementById('modal-main-footer')?.classList.toggle('is-collapsed');
+                    document.getElementById('modal-footer-chevron')?.classList.toggle('is-collapsed');
+                }
             },
                 createElement('div',{id: 'mobile-header-total', className:'text-xl font-bold'}, `Totalt: ${total.toLocaleString('sv-SE')} kr`),
-                createElement('button', {
-                    className: 'p-1',
-                    innerHTML: state.isModalFooterCollapsed ? icons.chevronUp('w-6 h-6') : icons.arrowDown('w-6 h-6')
-                })
+                createElement('button', { className: 'p-1' }, chevronIcon)
             );
 
             const mainFooterContent = createElement('div', {
-                className: `px-4 pb-4 md:p-4 ${state.isModalFooterCollapsed ? 'hidden' : 'block'} md:block`
+                id: 'modal-main-footer',
+                className: `collapsible-footer px-4 pb-4 md:p-4 md:block ${state.isModalFooterCollapsed ? 'is-collapsed' : ''}`
             });
 
             mainFooterContent.append(createElement('div', {className:'hidden md:flex justify-end text-sm gap-4 mb-3'}, 
@@ -1761,6 +1789,7 @@
     </script>
 </body>
 </html>
+
 
 
 
